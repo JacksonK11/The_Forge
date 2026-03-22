@@ -20,8 +20,8 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# nginx config for SPA routing (all routes return index.html)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx config for SPA routing — copy from build stage to avoid Depot build context issues
+COPY --from=build /app/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
