@@ -22,7 +22,7 @@ EXEMPT_PATHS = {
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in EXEMPT_PATHS:
+        if request.method == "OPTIONS" or request.url.path in EXEMPT_PATHS:
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
