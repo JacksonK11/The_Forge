@@ -12,6 +12,7 @@ from typing import AsyncGenerator
 
 from loguru import logger
 from sqlalchemy import text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -35,13 +36,15 @@ if "flycast" in DATABASE_URL or "internal" in DATABASE_URL:
 if "sslmode=" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.split("?")[0]
 
+# NullPool: no persistent connection pool. Required because the RQ worker
+# calls asyncio.run() per job (each creating a new event loop). A pooled
+# engine attaches connections to the first event loop; subsequent asyncio.run()
+# calls get a different loop and asyncpg raises "Future attached to a different
+# loop". NullPool creates a fresh connection per operation, avoiding the issue.
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    poolclass=NullPool,
     connect_args=_connect_args,
 )
 
