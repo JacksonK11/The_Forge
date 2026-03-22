@@ -1,0 +1,16 @@
+app = "the-forge-scheduler"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.scheduler"
+
+[env]
+  APP_ENV = "production"
+
+# No HTTP service — scheduler runs background cron jobs only
+# APScheduler manages its own job loop via asyncio
+
+[[vm]]
+  cpu_kind = "performance"
+  cpus = 1
+  memory_mb = 512

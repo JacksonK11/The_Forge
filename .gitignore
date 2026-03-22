@@ -1,0 +1,50 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Node / Frontend
+web-dashboard/node_modules/
+web-dashboard/dist/
+web-dashboard/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build packages
+*.zip
+/tmp/*.zip
+
+# Fly.io
+.fly/
+
+# Secrets (never commit)
+FLY_SECRETS.txt
+*_secrets.txt
+*.pem
+*.key

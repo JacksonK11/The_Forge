@@ -1,0 +1,16 @@
+app = "the-forge-worker"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[env]
+  APP_ENV = "production"
+
+# Worker has no HTTP service — it's a background process
+# Scale with: flyctl scale count 2 --app the-forge-worker
+
+[[vm]]
+  cpu_kind = "performance"
+  cpus = 4
+  memory_mb = 4096
