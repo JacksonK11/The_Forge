@@ -24,7 +24,7 @@ from config.model_config import router
 from config.settings import settings
 from pipeline.pipeline import PipelineState
 
-client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
 TEST_SYSTEM = """You are generating pytest test files for production Python code.
 
@@ -142,7 +142,7 @@ async def _generate_test_file(
         spec_summary=spec_summary,
         test_filename=test_filename,
     )
-    response = client.messages.create(
+    response = await client.messages.create(
         model=model,
         max_tokens=4096,
         system=TEST_SYSTEM,
