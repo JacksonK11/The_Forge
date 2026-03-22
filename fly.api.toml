@@ -23,6 +23,6 @@ primary_region = "lhr"
     timeout = "5s"
 
 [[vm]]
-  cpu_kind = "performance"
+  cpu_kind = "shared"
   cpus = 4
   memory_mb = 2048

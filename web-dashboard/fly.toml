@@ -4,8 +4,9 @@ primary_region = "lhr"
 [build]
   dockerfile = "Dockerfile"
 
-[env]
-  VITE_API_BASE_URL = "https://the-forge-api.fly.dev"
+  [build.args]
+    VITE_API_BASE_URL = "https://the-forge-api.fly.dev"
+    VITE_API_SECRET_KEY = "bc10f8ba91591da2e84f97212096ca185e7e9d9dc5b96ce8d6fce8f441938863"
 
 [http_service]
   internal_port = 80
@@ -22,6 +23,6 @@ primary_region = "lhr"
     timeout = "5s"
 
 [[vm]]
-  cpu_kind = "performance"
-  cpus = 2
+  cpu_kind = "shared"
+  cpus = 1
   memory_mb = 512

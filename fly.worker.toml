@@ -11,6 +11,6 @@ primary_region = "lhr"
 # Scale with: flyctl scale count 2 --app the-forge-worker
 
 [[vm]]
-  cpu_kind = "performance"
+  cpu_kind = "shared"
   cpus = 4
   memory_mb = 4096
