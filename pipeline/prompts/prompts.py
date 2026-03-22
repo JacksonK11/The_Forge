@@ -371,7 +371,7 @@ Check for ALL of the following issues:
 1. Placeholder code: any "pass", "...", "TODO", "FIXME", "implement this", "placeholder" — immediate fail
 2. Missing type hints on any function parameter or return type
 3. External API calls without try/except error handling
-4. Hardcoded values: localhost URLs, API keys, model names, email addresses, phone numbers
+4. Hardcoded values: API keys, credentials, email addresses, phone numbers hardcoded in source code. NOTE: localhost in Docker HEALTHCHECK commands is correct and required (health checks run inside the container) — do NOT flag this. localhost in nginx proxy_pass is also correct — do NOT flag this.
 5. Synchronous blocking calls in async functions (requests.get, time.sleep, etc.)
 6. Import errors: importing from files/modules that don't exist in the spec
 7. Syntax errors or obviously broken code

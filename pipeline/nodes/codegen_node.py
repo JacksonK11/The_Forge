@@ -59,7 +59,7 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                 generated_files=state.generated_files,
             )
 
-            if content:
+            if content is not None:
                 state.generated_files[file_path] = content
                 await _mark_file_complete(state.run_id, file_path, content)
             else:
