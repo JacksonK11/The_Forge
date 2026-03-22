@@ -49,7 +49,7 @@ async def package_node(state: PipelineState) -> PipelineState:
     formatted_files, format_report = await format_all_files(state.generated_files)
     state.generated_files = formatted_files
     if format_report:
-        logger.debug(f"[{state.run_id}] Linter report: {format_report[:200]}")
+        logger.debug(f"[{state.run_id}] Linter report: {str(format_report)[:200]}")
 
     # ── Run verifier on complete package ─────────────────────────────────────
     spec = state.spec or {}
