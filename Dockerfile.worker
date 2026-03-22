@@ -17,4 +17,4 @@ ENV PYTHONPATH=/app
 RUN useradd -m -u 1000 forge && chown -R forge:forge /app
 USER forge
 
-CMD ["python", "pipeline/worker.py"]
+CMD ["python", "-m", "pipeline.worker"]

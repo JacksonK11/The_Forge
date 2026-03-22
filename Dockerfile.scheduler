@@ -17,4 +17,4 @@ ENV PYTHONPATH=/app
 RUN useradd -m -u 1000 forge && chown -R forge:forge /app
 USER forge
 
-CMD ["python", "monitoring/scheduler.py"]
+CMD ["python", "-m", "monitoring.scheduler"]
