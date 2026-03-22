@@ -5,6 +5,10 @@ Telegram notification service for The Forge.
 Sends build completion, failure, and degradation alerts directly to Jackson's
 personal Telegram account via a dedicated Forge bot.
 
+Also handles callback_url POSTing for The Office integration — when a build or
+update completes and the originating request included a callback_url, a JSON
+summary is POSTed to that URL so The Office can update its state in real time.
+
 All notifications are fire-and-forget with full error handling — a notification
 failure never propagates to the calling pipeline node.
 """
@@ -44,6 +48,8 @@ async def notify_build_complete(
     file_count: int,
     files_failed: int,
     duration_seconds: float,
+    callback_url: Optional[str] = None,
+    github_repo_url: Optional[str] = None,
 ) -> None:
     """Notify when a build completes successfully."""
     status_icon = "✅" if files_failed == 0 else "⚠️"
@@ -56,8 +62,29 @@ async def notify_build_complete(
     )
     if files_failed > 0:
         text += f"⚠️ {files_failed} file(s) failed — check run detail\n"
+    if github_repo_url:
+        text += f"\nGitHub: <a href='{github_repo_url}'>{github_repo_url}</a>\n"
     text += f"\n<a href='https://the-forge-dashboard.fly.dev/runs/{run_id}'>View Build →</a>"
     await _send(text)
+
+    # POST callback to The Office or other caller
+    if callback_url:
+        summary = {
+            "run_id": run_id,
+            "status": "complete",
+            "title": title,
+            "file_count": file_count,
+            "files_failed": files_failed,
+            "duration_seconds": round(duration_seconds, 1),
+            "github_repo_url": github_repo_url,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(callback_url, json=summary)
+                resp.raise_for_status()
+                logger.info(f"Build complete callback posted to {callback_url}")
+        except Exception as exc:
+            logger.error(f"Build complete callback POST failed (non-blocking): {exc}")
 
 
 async def notify_build_failed(

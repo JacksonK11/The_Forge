@@ -3,7 +3,12 @@ export default {
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["'IBM Plex Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["'IBM Plex Mono'", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
+      },
       colors: {
+        // Preserve existing forge palette for any old references
         forge: {
           900: "#0a0a0f",
           800: "#111118",

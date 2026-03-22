@@ -64,6 +64,10 @@ isort==5.13.2
 pip-audit==2.7.3
 detect-secrets==1.5.0
 
+# GitHub integration
+PyGithub>=2.5.0
+gitpython>=3.1.44
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.24.0

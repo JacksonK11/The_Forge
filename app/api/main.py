@@ -18,6 +18,8 @@ from rq import Queue
 
 from app.api.middleware.auth import AuthMiddleware
 from app.api.routes import forge, runs, templates
+from app.api.routes.chat import router as chat_router
+from app.api.routes.office import router as office_router
 from config.settings import settings
 from memory.database import close_db, init_db
 from memory.seed import run_seed
@@ -81,6 +83,8 @@ app.add_middleware(AuthMiddleware)
 app.include_router(forge.router, prefix="/forge", tags=["forge"])
 app.include_router(runs.router, prefix="/forge/runs", tags=["runs"])
 app.include_router(templates.router, prefix="/templates", tags=["templates"])
+app.include_router(office_router, prefix="/forge", tags=["office"])
+app.include_router(chat_router, prefix="/forge", tags=["chat"])
 
 
 @app.get("/health", tags=["health"])

@@ -2,12 +2,14 @@
 memory/models.py
 Database models for The Forge — AI Build Engine.
 
-8 tables:
+11 tables:
   Core:        forge_runs, forge_files
   Intelligence: kb_records, meta_rules
   Knowledge:   knowledge_articles, knowledge_chunks
   Templates:   forge_templates
   Monitoring:  performance_metrics
+  Updates:     forge_updates
+  Registry:    agents_registry
 """
 
 import uuid
@@ -85,6 +87,16 @@ class ForgeRun(Base):
     files_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     package_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     package_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+
+    # GitHub auto-push fields
+    repo_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    push_to_github: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    github_repo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    github_push_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Office callback
+    callback_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -302,3 +314,61 @@ class PerformanceMetric(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     details_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+
+# ── Update & Registry Tables ──────────────────────────────────────────────────
+
+
+class ForgeUpdate(Base):
+    """
+    Tracks update pipeline runs — targeted codebase changes applied to an
+    existing GitHub repository via clone → plan → generate → commit/push.
+    """
+
+    __tablename__ = "forge_updates"
+
+    update_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    repo_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    change_description: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
+    files_modified: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_deleted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_files_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    callback_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AgentRegistry(Base):
+    """
+    Registry of all deployed agents. The Forge registers each agent it builds
+    here on successful deployment. The Office reads this table for its unified
+    command center view.
+    """
+
+    __tablename__ = "agents_registry"
+
+    agent_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    agent_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    dashboard_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    health_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    repo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    health_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    last_health_check: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    registered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

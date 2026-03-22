@@ -55,6 +55,10 @@ class PipelineState:
     current_layer: int = 0
     current_file: str = ""
 
+    # GitHub auto-push
+    repo_name: Optional[str] = None
+    push_to_github: bool = False
+
     # Timing
     started_at: float = field(default_factory=time.time)
 
@@ -88,6 +92,8 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
             run_id=run_id,
             title=run.title,
             blueprint_text=run.blueprint_text or "",
+            repo_name=run.repo_name,
+            push_to_github=run.push_to_github or False,
         )
 
         # Restore spec/manifest if resuming after spec approval
@@ -123,7 +129,11 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
     if state.current_stage == "failed":
         return
 
-    # ── Stage 6: Complete ─────────────────────────────────────────────────────
+    # ── Stage 6: GitHub push (optional, never blocks completion) ─────────────
+    from pipeline.nodes.github_push_node import github_push_node
+    state = await github_push_node(state)
+
+    # ── Stage 7: Complete ─────────────────────────────────────────────────────
     duration = time.time() - state.started_at
     await _update_run_status(run_id, RunStatus.COMPLETE.value)
     logger.info(
@@ -133,7 +143,7 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
         f"duration={duration:.0f}s"
     )
 
-    # ── Stage 7: Notify ───────────────────────────────────────────────────────
+    # ── Stage 8: Notify ───────────────────────────────────────────────────────
     try:
         from app.api.services.notify import notify_build_complete
         async with get_session() as session:
@@ -149,6 +159,8 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
                     file_count=run.file_count,
                     files_failed=run.files_failed,
                     duration_seconds=duration,
+                    callback_url=run.callback_url,
+                    github_repo_url=run.github_repo_url,
                 )
     except Exception as exc:
         logger.error(f"Notification failed (non-blocking): {exc}")

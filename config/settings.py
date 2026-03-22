@@ -5,41 +5,48 @@ Used by all services: API, worker, pipeline nodes, intelligence layer.
 """
 
 import os
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # ── Application ──────────────────────────────────────────────────────
+    # ── Application ──────────────────────────────────────────────────────────
     app_env: str = "development"
     app_port: int = 8000
 
-    # ── Security ─────────────────────────────────────────────────────────
+    # ── Security ─────────────────────────────────────────────────────────────
     api_secret_key: str
 
-    # ── Database ─────────────────────────────────────────────────────────
+    # ── Database ─────────────────────────────────────────────────────────────
     database_url: str
 
-    # ── Redis ────────────────────────────────────────────────────────────
+    # ── Redis ────────────────────────────────────────────────────────────────
     redis_url: str
 
-    # ── Claude AI ────────────────────────────────────────────────────────
+    # ── Claude AI ────────────────────────────────────────────────────────────
     anthropic_api_key: str
     claude_model: str = "claude-sonnet-4-6"
     claude_fast_model: str = "claude-haiku-4-5-20251001"
 
-    # ── OpenAI (embeddings only) ─────────────────────────────────────────
+    # ── OpenAI (embeddings only) ─────────────────────────────────────────────
     openai_api_key: str
 
-    # ── Tavily (web search) ──────────────────────────────────────────────
+    # ── Tavily (web search) ──────────────────────────────────────────────────
     tavily_api_key: str
 
-    # ── Telegram ─────────────────────────────────────────────────────────
+    # ── Telegram ─────────────────────────────────────────────────────────────
     telegram_bot_token: str
     telegram_chat_id: str
 
-    # ── Sentry (optional) ────────────────────────────────────────────────
+    # ── Sentry (optional) ────────────────────────────────────────────────────
     sentry_dsn: str = ""
+
+    # ── GitHub (optional — enables auto-push of generated codebases) ─────────
+    github_token: Optional[str] = None
+
+    # ── The Office (optional — set when Agent 5 is deployed) ─────────────────
+    office_webhook_url: Optional[str] = None
 
     class Config:
         env_file = ".env"

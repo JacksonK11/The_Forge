@@ -112,9 +112,16 @@ async def init_db() -> None:
             await conn.run_sync(Base.metadata.create_all)
             logger.info("All database tables created")
             # Idempotent column additions for schema migrations
-            await conn.execute(text(
-                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS package_data BYTEA"
-            ))
+            migrations = [
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS package_data BYTEA",
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS repo_name VARCHAR(255)",
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS push_to_github BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS github_repo_url VARCHAR(500)",
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS github_push_status VARCHAR(50)",
+                "ALTER TABLE forge_runs ADD COLUMN IF NOT EXISTS callback_url VARCHAR(500)",
+            ]
+            for sql in migrations:
+                await conn.execute(text(sql))
         logger.info("Database initialization complete")
     except Exception as exc:
         logger.error(f"Database initialization failed: {exc}")

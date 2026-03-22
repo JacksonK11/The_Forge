@@ -1,14 +1,19 @@
 """
 app/api/routes/forge.py
-Blueprint submission and build management routes.
+Blueprint submission, build management, and update routes.
 
-POST /forge/submit          — submit blueprint text or file upload, queue build
-POST /forge/runs/{id}/approve — approve parsed spec, start code generation
-POST /forge/runs/{id}/regenerate/{file_path} — regenerate single file
-GET  /forge/runs/{id}/package — download completed ZIP
+POST /forge/submit                                — submit blueprint text, queue build
+POST /forge/submit-file                           — submit blueprint file (.docx/.pdf)
+POST /forge/runs/{id}/approve                     — approve parsed spec, start code generation
+POST /forge/runs/{id}/regenerate/{file_path}      — regenerate single file
+GET  /forge/runs/{id}/package                     — download completed ZIP
+POST /forge/update                                — queue a targeted codebase update
+GET  /forge/updates                               — list all update runs
+GET  /forge/updates/{update_id}                   — get update run detail
 """
 
 import io
+import re
 import uuid
 from typing import Optional
 
@@ -20,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory.database import get_db
-from memory.models import FileStatus, ForgeFile, ForgeRun, RunStatus
+from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
 
 router = APIRouter()
@@ -32,6 +37,8 @@ router = APIRouter()
 class SubmitBlueprintRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     blueprint_text: str = Field(..., min_length=50)
+    repo_name: Optional[str] = None
+    push_to_github: bool = True
 
 
 class SubmitBlueprintResponse(BaseModel):
@@ -53,6 +60,19 @@ class RegenerateFileResponse(BaseModel):
     message: str
 
 
+class UpdateRequest(BaseModel):
+    github_repo_url: str = Field(..., min_length=1, max_length=500)
+    change_description: str = Field(..., min_length=10)
+    title: Optional[str] = None
+    callback_url: Optional[str] = None
+
+
+class UpdateResponse(BaseModel):
+    update_id: str
+    status: str
+    message: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
@@ -69,11 +89,15 @@ async def submit_blueprint(
     from app.api.main import get_build_queue
 
     run_id = str(uuid.uuid4())
+    resolved_repo_name = request.repo_name or _slug(request.title)
+
     run = ForgeRun(
         run_id=run_id,
         title=request.title,
         blueprint_text=request.blueprint_text,
         status=RunStatus.QUEUED.value,
+        repo_name=resolved_repo_name,
+        push_to_github=request.push_to_github,
     )
     session.add(run)
     await session.commit()
@@ -86,7 +110,10 @@ async def submit_blueprint(
             job_id=f"build-{run_id}",
             job_timeout=3600,
         )
-        logger.info(f"Build queued: run_id={run_id} title='{request.title}'")
+        logger.info(
+            f"Build queued: run_id={run_id} title='{request.title}' "
+            f"repo={resolved_repo_name} push_to_github={request.push_to_github}"
+        )
     except Exception as exc:
         run.status = RunStatus.FAILED.value
         run.error_message = f"Failed to queue build: {exc}"
@@ -105,6 +132,8 @@ async def submit_blueprint(
 async def submit_blueprint_file(
     title: str = Form(...),
     file: UploadFile = File(...),
+    repo_name: Optional[str] = Form(None),
+    push_to_github: bool = Form(True),
     session: AsyncSession = Depends(get_db),
 ) -> SubmitBlueprintResponse:
     """
@@ -113,7 +142,6 @@ async def submit_blueprint_file(
     """
     from app.api.main import get_build_queue
 
-    content_type = file.content_type or ""
     filename = file.filename or ""
 
     try:
@@ -129,12 +157,16 @@ async def submit_blueprint_file(
         )
 
     run_id = str(uuid.uuid4())
+    resolved_repo_name = repo_name or _slug(title)
+
     run = ForgeRun(
         run_id=run_id,
         title=title,
         blueprint_text=blueprint_text,
         blueprint_file_path=filename,
         status=RunStatus.QUEUED.value,
+        repo_name=resolved_repo_name,
+        push_to_github=push_to_github,
     )
     session.add(run)
     await session.commit()
@@ -147,7 +179,10 @@ async def submit_blueprint_file(
         job_timeout=3600,
     )
 
-    logger.info(f"File build queued: run_id={run_id} file='{filename}'")
+    logger.info(
+        f"File build queued: run_id={run_id} file='{filename}' "
+        f"repo={resolved_repo_name} push_to_github={push_to_github}"
+    )
     return SubmitBlueprintResponse(
         run_id=run_id,
         status=RunStatus.QUEUED.value,
@@ -293,7 +328,131 @@ async def download_package(
     )
 
 
+# ── Update endpoints ──────────────────────────────────────────────────────────
+
+
+@router.post("/update", response_model=UpdateResponse)
+async def submit_update(
+    request: UpdateRequest,
+    session: AsyncSession = Depends(get_db),
+) -> UpdateResponse:
+    """
+    Queue a targeted codebase update for an existing GitHub repository.
+    The update pipeline clones the repo, plans the changes with Claude,
+    generates new/modified file content, and commits + pushes to main.
+
+    Requires GITHUB_TOKEN to be set with repo read/write access.
+    """
+    from app.api.main import get_build_queue
+    from pipeline.update_pipeline import run_update_pipeline_sync
+
+    update_id = str(uuid.uuid4())
+    update = ForgeUpdate(
+        update_id=update_id,
+        repo_url=request.github_repo_url,
+        change_description=request.change_description,
+        title=request.title or f"Update: {request.github_repo_url.split('/')[-1]}",
+        status="queued",
+        callback_url=request.callback_url,
+    )
+    session.add(update)
+    await session.commit()
+
+    try:
+        queue = get_build_queue()
+        queue.enqueue(
+            run_update_pipeline_sync,
+            update_id,
+            job_id=f"update-{update_id}",
+            job_timeout=3600,
+        )
+        logger.info(
+            f"Update queued: update_id={update_id} repo={request.github_repo_url}"
+        )
+    except Exception as exc:
+        update.status = "failed"
+        update.error_message = f"Failed to queue update: {exc}"
+        await session.commit()
+        logger.error(f"Failed to queue update {update_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue update: {exc}")
+
+    return UpdateResponse(
+        update_id=update_id,
+        status="queued",
+        message="Update queued. Changes will be committed and pushed to main.",
+    )
+
+
+@router.get("/updates")
+async def list_updates(
+    session: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List all update runs, most recent first."""
+    from sqlalchemy import desc
+
+    result = await session.execute(
+        select(ForgeUpdate).order_by(desc(ForgeUpdate.created_at)).limit(100)
+    )
+    updates = result.scalars().all()
+    return [
+        {
+            "update_id": u.update_id,
+            "repo_url": u.repo_url,
+            "title": u.title,
+            "change_description": u.change_description[:200],
+            "status": u.status,
+            "files_created": u.files_created,
+            "files_modified": u.files_modified,
+            "files_deleted": u.files_deleted,
+            "error_message": u.error_message,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "updated_at": u.updated_at.isoformat() if u.updated_at else None,
+        }
+        for u in updates
+    ]
+
+
+@router.get("/updates/{update_id}")
+async def get_update(
+    update_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get full detail for a specific update run."""
+    result = await session.execute(
+        select(ForgeUpdate).where(ForgeUpdate.update_id == update_id)
+    )
+    update = result.scalar_one_or_none()
+    if not update:
+        raise HTTPException(status_code=404, detail="Update not found")
+
+    return {
+        "update_id": update.update_id,
+        "repo_url": update.repo_url,
+        "title": update.title,
+        "change_description": update.change_description,
+        "status": update.status,
+        "files_created": update.files_created,
+        "files_modified": update.files_modified,
+        "files_deleted": update.files_deleted,
+        "error_message": update.error_message,
+        "changed_files_json": update.changed_files_json,
+        "callback_url": update.callback_url,
+        "created_at": update.created_at.isoformat() if update.created_at else None,
+        "updated_at": update.updated_at.isoformat() if update.updated_at else None,
+    }
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _slug(title: str) -> str:
+    """Convert a title to a URL/repo-safe kebab-case slug."""
+    slug = title.lower().strip()
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    slug = slug.strip("-")
+    return slug[:100] or "forge-build"
 
 
 def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
