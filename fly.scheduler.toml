@@ -11,6 +11,6 @@ primary_region = "lhr"
 # APScheduler manages its own job loop via asyncio
 
 [[vm]]
-  cpu_kind = "performance"
+  cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 1024
