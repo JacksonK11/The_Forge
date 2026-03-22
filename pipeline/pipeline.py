@@ -72,7 +72,6 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
     from pipeline.nodes.codegen_node import codegen_node
     from pipeline.nodes.package_node import package_node
     from pipeline.nodes.parse_node import parse_node
-    from pipeline.nodes.spec_node import spec_node
 
     # ── Load run from DB ─────────────────────────────────────────────────────
     async with get_session() as session:
