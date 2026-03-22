@@ -22,6 +22,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -83,6 +84,7 @@ class ForgeRun(Base):
     files_complete: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     files_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     package_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    package_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

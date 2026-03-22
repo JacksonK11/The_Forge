@@ -97,13 +97,13 @@ async def package_node(state: PipelineState) -> PipelineState:
         f"[{state.run_id}] Package saved: {package_path} ({len(package_bytes):,} bytes)"
     )
 
-    # ── Update run record ────────────────────────────────────────────────────
+    # ── Update run record — store bytes in DB so any API machine can serve it ──
     async with get_session() as session:
         from sqlalchemy import update
         await session.execute(
             update(ForgeRun)
             .where(ForgeRun.run_id == state.run_id)
-            .values(package_path=package_path)
+            .values(package_path=package_path, package_data=package_bytes)
         )
 
     # ── Store build outcome in knowledge base ─────────────────────────────────

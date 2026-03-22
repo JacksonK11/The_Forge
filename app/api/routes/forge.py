@@ -271,14 +271,17 @@ async def download_package(
         raise HTTPException(
             status_code=400, detail=f"Run is not complete (status: {run.status})"
         )
-    if not run.package_path:
+    if not run.package_data and not run.package_path:
         raise HTTPException(status_code=404, detail="Package not found for this run")
 
-    try:
-        with open(run.package_path, "rb") as f:
-            package_bytes = f.read()
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Package file missing from disk")
+    if run.package_data:
+        package_bytes = run.package_data
+    else:
+        try:
+            with open(run.package_path, "rb") as f:
+                package_bytes = f.read()
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Package file missing from disk")
 
     agent_slug = run.spec_json.get("agent_slug", "agent") if run.spec_json else "agent"
     filename = f"{agent_slug}-forge-package.zip"
