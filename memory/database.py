@@ -24,6 +24,17 @@ from memory.models import Base
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
+# Fly.io internal Postgres (flycast) uses an unverified TLS connection.
+# asyncpg requires ssl=False for internal Fly.io connections; it does not
+# accept libpq-style sslmode=disable query params.
+_connect_args: dict = {}
+if "flycast" in DATABASE_URL or "internal" in DATABASE_URL:
+    _connect_args["ssl"] = False
+
+# Strip any legacy sslmode=disable param that asyncpg can't parse
+if "sslmode=" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.split("?")[0]
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -31,6 +42,7 @@ engine = create_async_engine(
     max_overflow=20,
     pool_pre_ping=True,
     pool_recycle=3600,
+    connect_args=_connect_args,
 )
 
 # ── Session factory ──────────────────────────────────────────────────────────
