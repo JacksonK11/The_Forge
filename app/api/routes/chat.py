@@ -22,7 +22,7 @@ router = APIRouter()
 
 # GPT-4o: OpenAI's flagship model — 128k context, best reasoning, fast response.
 # Separate quota from Anthropic so chat never impacts build pipeline capacity.
-_CHAT_MODEL = "gpt-4o"
+_CHAT_MODEL = "gpt-4o-mini"
 
 FORGE_SYSTEM_PROMPT = """You are The Forge's AI assistant — a specialist in The Forge AI build engine \
 and the full The Office agent portfolio. You help Jackson Khoury (Sydney, Australia) build, deploy, \
