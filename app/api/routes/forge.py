@@ -4,6 +4,7 @@ Blueprint submission, build management, and update routes.
 
 POST /forge/submit                                — submit blueprint text, queue build
 POST /forge/submit-file                           — submit blueprint file (.docx/.pdf/.py/.txt etc)
+POST /forge/submit-with-files                     — submit blueprint text + attached files, queue build
 POST /forge/runs/{id}/approve                     — approve parsed spec, start code generation
 POST /forge/runs/{id}/regenerate/{file_path}      — regenerate single file
 GET  /forge/runs/{id}/package                     — download completed ZIP
@@ -16,7 +17,7 @@ import io
 import re
 import uuid
 from io import BytesIO
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from memory.database import get_db
 from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
+from services.file_extractor import file_extractor
 
 router = APIRouter()
 
@@ -88,6 +90,11 @@ class FileExtractResponse(BaseModel):
     filename: str
 
 
+class SubmitWithFilesResponse(BaseModel):
+    run_id: str
+    status: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
@@ -140,6 +147,115 @@ async def submit_blueprint(
         run_id=run_id,
         status=RunStatus.QUEUED.value,
         message="Blueprint accepted. Build queued.",
+    )
+
+
+@router.post("/submit-with-files", response_model=SubmitWithFilesResponse)
+async def submit_with_files(
+    title: str = Form(...),
+    blueprint_text: str = Form(...),
+    repo_name: Optional[str] = Form(None),
+    push_to_github: bool = Form(True),
+    files: List[UploadFile] = File(default=[]),
+    session: AsyncSession = Depends(get_db),
+) -> SubmitWithFilesResponse:
+    """
+    Submit blueprint text with attached files for processing.
+
+    Accepts multipart form data with:
+    - title: Build title
+    - blueprint_text: The user's typed instructions/prompt
+    - repo_name: Optional repository name
+    - push_to_github: Whether to push to GitHub (default True)
+    - files: Zero or more attached files (any type)
+
+    For each uploaded file, extracts text content server-side using file_extractor.
+    Combines blueprint_text + all extracted file contents into one combined blueprint.
+    Creates a ForgeRun and queues the pipeline job with the combined text.
+
+    Returns {run_id, status: "queued"}.
+    """
+    from app.api.main import get_build_queue
+
+    # Extract text from each attached file
+    file_sections: list[str] = []
+    for upload_file in files:
+        filename = upload_file.filename or "unknown"
+        try:
+            file_bytes = await upload_file.read()
+        except Exception as exc:
+            logger.error(f"Failed to read uploaded file '{filename}': {exc}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to read file '{filename}': {exc}",
+            )
+
+        try:
+            extracted_text = file_extractor.extract_text(filename, file_bytes)
+        except Exception as exc:
+            logger.error(f"Failed to extract text from '{filename}': {exc}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to extract text from '{filename}': {exc}",
+            )
+
+        logger.info(
+            f"Extracted {len(extracted_text)} chars from attached file '{filename}' "
+            f"({len(file_bytes)} bytes)"
+        )
+        file_sections.append(f"=== ATTACHED FILE: {filename} ===\n{extracted_text}")
+
+    # Combine blueprint text with extracted file contents
+    if file_sections:
+        combined_blueprint = blueprint_text + "\n\n" + "\n\n".join(file_sections)
+    else:
+        combined_blueprint = blueprint_text
+
+    # Validate combined blueprint has enough content
+    if len(combined_blueprint.strip()) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Combined blueprint text is too short (minimum 50 characters). "
+            "Add more detail to your instructions or attach files with content.",
+        )
+
+    run_id = str(uuid.uuid4())
+    resolved_repo_name = repo_name or _slug(title)
+
+    run = ForgeRun(
+        run_id=run_id,
+        title=title,
+        blueprint_text=combined_blueprint,
+        status=RunStatus.QUEUED.value,
+        repo_name=resolved_repo_name,
+        push_to_github=push_to_github,
+    )
+    session.add(run)
+    await session.commit()
+
+    try:
+        queue = get_build_queue()
+        queue.enqueue(
+            run_pipeline_sync,
+            run_id,
+            job_id=f"build-{run_id}",
+            job_timeout=3600,
+        )
+        logger.info(
+            f"Build with files queued: run_id={run_id} title='{title}' "
+            f"repo={resolved_repo_name} files={len(files)} "
+            f"combined_chars={len(combined_blueprint)} push_to_github={push_to_github}"
+        )
+    except Exception as exc:
+        run.status = RunStatus.FAILED.value
+        run.error_message = f"Failed to queue build: {exc}"
+        await session.commit()
+        logger.error(f"Failed to queue build with files {run_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue build: {exc}")
+
+    return SubmitWithFilesResponse(
+        run_id=run_id,
+        status=RunStatus.QUEUED.value,
     )
 
 

@@ -61,6 +61,36 @@ export async function submitBuild(payload) {
   return request("POST", "/forge/submit", payload);
 }
 
+export async function submitBuildWithFiles({ title, blueprint_text, repo_name, files }) {
+  const formData = new FormData();
+  formData.append("title", title || "");
+  formData.append("blueprint_text", blueprint_text || "");
+  formData.append("repo_name", repo_name || "");
+  if (files && files.length > 0) {
+    for (const file of files) {
+      formData.append("files", file);
+    }
+  }
+  const res = await fetch(`${BASE_URL}/forge/submit-with-files`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${API_SECRET}`,
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      errMsg = data.detail || data.message || errMsg;
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
+
 export async function getRun(runId) {
   return request("GET", `/forge/runs/${runId}`);
 }

@@ -1,3 +1,14 @@
+/**
+ * @deprecated This component is deprecated for use in BuildTab.
+ * The Build tab now uses FileAttachmentArea.jsx which stores File objects
+ * as attachments (like chat attachments) instead of reading file contents
+ * into the Blueprint textarea. File text extraction is now handled server-side
+ * via POST /forge/submit-with-files.
+ *
+ * This component is retained for backward compatibility in case it is used
+ * elsewhere, but new code should use FileAttachmentArea.jsx instead.
+ */
+
 import React, { useState, useRef, useCallback } from 'react';
 
 const TEXT_EXTENSIONS = new Set([
@@ -123,6 +134,9 @@ function getBadgeColor(ext) {
 }
 
 /**
+ * @deprecated Use FileAttachmentArea.jsx instead. File content extraction
+ * is now handled server-side via POST /forge/submit-with-files.
+ *
  * Read a single file's text content client-side.
  * For text files, reads as UTF-8 text.
  * For extractable binary files (.docx, .pdf), returns a placeholder
@@ -184,13 +198,11 @@ function readFileContentClientSide(fileEntry) {
 }
 
 /**
+ * @deprecated Use POST /forge/submit-with-files instead.
+ * Server-side extraction is now handled by the new endpoint automatically.
+ *
  * Submit a file to the server for text extraction (for .docx, .pdf, etc).
  * Calls the /forge/submit-file endpoint and returns the extracted text.
- *
- * @param {File} file - The raw File object to upload
- * @param {string} apiBase - The API base URL
- * @param {string} apiKey - The API secret key for authorization
- * @returns {Promise<{text: string, filename: string}>} The extracted text content and filename
  */
 async function extractFileOnServer(file, apiBase, apiKey) {
   const formData = new FormData();
@@ -217,6 +229,9 @@ async function extractFileOnServer(file, apiBase, apiKey) {
 }
 
 /**
+ * @deprecated Use FileAttachmentArea.jsx and POST /forge/submit-with-files instead.
+ * File content combination is now handled server-side.
+ *
  * Read all files and combine their contents into labeled sections.
  * For extractable files (.docx, .pdf), sends them to the server for extraction.
  * Returns a string with format:
@@ -224,13 +239,6 @@ async function extractFileOnServer(file, apiBase, apiKey) {
  * <file contents>
  *
  * For each file.
- *
- * @param {Array} fileEntries - Array of file entry objects from the grid
- * @param {Object} options - Options for server extraction
- * @param {string} options.apiBase - API base URL
- * @param {string} options.apiKey - API secret key
- * @param {Function} options.onProgress - Optional callback for progress updates
- * @returns {Promise<string>} Combined text of all files
  */
 export async function combineFileContents(fileEntries, options = {}) {
   if (!fileEntries || fileEntries.length === 0) return '';
@@ -271,15 +279,11 @@ export async function combineFileContents(fileEntries, options = {}) {
 }
 
 /**
+ * @deprecated Use FileAttachmentArea.jsx and POST /forge/submit-with-files instead.
+ * File content reading is now handled server-side.
+ *
  * Read all file contents and return as an array of { name, content } objects.
  * For extractable files, sends them to the server for extraction.
- *
- * @param {Array} fileEntries - Array of file entry objects from the grid
- * @param {Object} options - Options for server extraction
- * @param {string} options.apiBase - API base URL
- * @param {string} options.apiKey - API secret key
- * @param {Function} options.onProgress - Optional callback for progress updates
- * @returns {Promise<Array<{name: string, content: string}>>} Array of file content objects
  */
 export async function readAllFileContents(fileEntries, options = {}) {
   if (!fileEntries || fileEntries.length === 0) return [];
@@ -316,11 +320,9 @@ export async function readAllFileContents(fileEntries, options = {}) {
 }
 
 /**
- * Get the list of files that need server-side extraction.
- * Useful for the parent component to know which files will require API calls.
+ * @deprecated Use FileAttachmentArea.jsx instead.
  *
- * @param {Array} fileEntries - Array of file entry objects from the grid
- * @returns {Array} Files that need server extraction
+ * Get the list of files that need server-side extraction.
  */
 export function getExtractableFiles(fileEntries) {
   if (!fileEntries || fileEntries.length === 0) return [];
@@ -328,10 +330,9 @@ export function getExtractableFiles(fileEntries) {
 }
 
 /**
- * Get the list of files that can be read client-side as text.
+ * @deprecated Use FileAttachmentArea.jsx instead.
  *
- * @param {Array} fileEntries - Array of file entry objects from the grid
- * @returns {Array} Files readable client-side
+ * Get the list of files that can be read client-side as text.
  */
 export function getTextFiles(fileEntries) {
   if (!fileEntries || fileEntries.length === 0) return [];
@@ -339,6 +340,10 @@ export function getTextFiles(fileEntries) {
 }
 
 /**
+ * @deprecated This component is deprecated for use in BuildTab.
+ * Use FileAttachmentArea.jsx instead, which stores File objects as attachments
+ * and sends them to POST /forge/submit-with-files for server-side text extraction.
+ *
  * FileUploadGrid component with two-path upload flow:
  * - Binary files (.docx, .pdf) are sent to the backend via POST /forge/submit-file for text extraction
  * - Text files (.py, .txt, .toml, .json, .md, .yml, etc.) are read client-side with FileReader
@@ -347,7 +352,7 @@ export function getTextFiles(fileEntries) {
  * - files: Array of file entry objects
  * - setFiles: State setter for files array
  * - onTextExtracted: Callback(text, filename) — called when text is extracted from any file,
- *   so the parent (BuildTab) can display it in the Blueprint textarea
+ *   so the parent can display it in the Blueprint textarea
  * - onServerExtract: Optional callback(file, id) => Promise<string> for custom server extraction
  * - apiBase: API base URL for server-side extraction (used when onServerExtract is not provided)
  * - apiKey: API secret key for authorization
@@ -511,12 +516,15 @@ export default function FileUploadGrid({ files, setFiles, onTextExtracted, onSer
 
   return (
     <div style={{ width: '100%' }}>
+      {/* Deprecation notice for developers */}
+      {/* This component is deprecated for BuildTab. Use FileAttachmentArea.jsx instead. */}
+
       {/* Hidden file input — accept all file types */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".py,.txt,.toml,.json,.md,.yml,.yaml,.js,.jsx,.ts,.tsx,.html,.css,.scss,.sh,.bash,.docx,.pdf,.csv,.sql,.xml,.env,.ini,.cfg,.conf,.go,.rs,.java,.rb,.c,.cpp,.h,.hpp,.swift,.kt,.scala,.dart,.vue,.svelte,.prisma,.graphql,.proto,.tf,.sol,*/*"
+        accept="*/*"
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
@@ -552,3 +560,9 @@ export default function FileUploadGrid({ files, setFiles, onTextExtracted, onSer
         <div
           style={{
             display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '12px',
+          }}
+        >
+          <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: 600 }
