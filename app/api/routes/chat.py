@@ -11,18 +11,18 @@ so the AI has full context of the user's workspace.
 
 from typing import Optional
 
+import anthropic
 from fastapi import APIRouter
 from loguru import logger
-from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from config.settings import settings
 
 router = APIRouter()
 
-# GPT-4o: OpenAI's flagship model — 128k context, best reasoning, fast response.
-# Separate quota from Anthropic so chat never impacts build pipeline capacity.
-_CHAT_MODEL = "gpt-4o-mini"
+# Temporary: using Claude until OpenAI billing is set up.
+# To switch back to GPT-4o-mini: replace the client + call below with OpenAI.
+_CHAT_MODEL = "claude-haiku-4-5-20251001"
 
 FORGE_SYSTEM_PROMPT = """You are The Forge's AI assistant — a specialist in The Forge AI build engine \
 and the full The Office agent portfolio. You help Jackson Khoury (Sydney, Australia) build, deploy, \
@@ -113,43 +113,36 @@ async def chat(req: ChatRequest) -> ChatResponse:
     Uses OpenAI quota — completely isolated from the Anthropic build pipeline.
     """
     try:
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-        # Build dynamic system prompt with user context
         system_parts = [FORGE_SYSTEM_PROMPT]
         if req.memory_notes and req.memory_notes.strip():
-            system_parts.append(
-                f"\n\nUSER MEMORY NOTES (always respect these):\n{req.memory_notes}"
-            )
+            system_parts.append(f"\n\nUSER MEMORY NOTES (always respect these):\n{req.memory_notes}")
         if req.files_context and req.files_context.strip():
-            system_parts.append(
-                f"\n\nUSER UPLOADED FILES (available for reference):\n{req.files_context}"
-            )
+            system_parts.append(f"\n\nUSER UPLOADED FILES (available for reference):\n{req.files_context}")
         system_prompt = "".join(system_parts)
 
-        messages = [{"role": "system", "content": system_prompt}]
-        for msg in req.messages:
-            if msg.role in ("user", "assistant"):
-                messages.append({"role": msg.role, "content": msg.content})
+        anthropic_messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in req.messages
+            if msg.role in ("user", "assistant")
+        ]
 
-        response = await client.chat.completions.create(
+        response = await client.messages.create(
             model=_CHAT_MODEL,
-            messages=messages,
             max_tokens=4096,
-            temperature=0.7,
+            system=system_prompt,
+            messages=anthropic_messages,
         )
 
-        reply = response.choices[0].message.content or "No response."
+        reply = response.content[0].text if response.content else "No response."
         logger.info(
             f"Chat: model={_CHAT_MODEL} "
-            f"input={response.usage.prompt_tokens} output={response.usage.completion_tokens}"
+            f"input={response.usage.input_tokens} output={response.usage.output_tokens}"
         )
 
         return ChatResponse(reply=reply, model=_CHAT_MODEL)
 
     except Exception as exc:
         logger.error(f"Chat endpoint error: {exc}")
-        return ChatResponse(
-            reply=f"Chat error: {exc}",
-            model=_CHAT_MODEL,
-        )
+        return ChatResponse(reply=f"Chat error: {exc}", model=_CHAT_MODEL)
