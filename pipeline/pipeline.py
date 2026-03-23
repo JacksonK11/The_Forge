@@ -102,6 +102,14 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
             state.spec = run.spec_json
             state.current_stage = "architecting"
 
+        # Restore spec + manifest when resuming mid-generation (killed job)
+        if resume_from == "generating":
+            if run.spec_json:
+                state.spec = run.spec_json
+            if run.manifest_json:
+                state.manifest = run.manifest_json
+            state.current_stage = "generating"
+
     logger.info(f"Pipeline started: run_id={run_id} resume_from={resume_from}")
 
     # ── Stage 1 & 2: Validate + Parse (skip if resuming) ────────────────────
@@ -115,10 +123,11 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
         logger.info(f"Run {run_id} paused for spec confirmation")
         return
 
-    # ── Stage 3: Architecture ────────────────────────────────────────────────
-    state = await _run_stage(run_id, "architecting", architecture_node, state)
-    if state.current_stage == "failed":
-        return
+    # ── Stage 3: Architecture (skip if resuming mid-generation) ─────────────
+    if resume_from != "generating":
+        state = await _run_stage(run_id, "architecting", architecture_node, state)
+        if state.current_stage == "failed":
+            return
 
     # ── Stage 4: Code generation ─────────────────────────────────────────────
     state = await _run_stage(run_id, "generating", codegen_node, state)
