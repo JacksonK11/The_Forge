@@ -63,6 +63,12 @@ class ApproveSpecResponse(BaseModel):
     message: str
 
 
+class ResumeRunResponse(BaseModel):
+    run_id: str
+    status: str
+    message: str
+
+
 class RegenerateFileResponse(BaseModel):
     run_id: str
     file_path: str
@@ -401,6 +407,47 @@ async def approve_spec(
         run_id=run_id,
         status=RunStatus.ARCHITECTING.value,
         message="Spec approved. Generating architecture and starting code generation.",
+    )
+
+
+@router.post("/runs/{run_id}/resume", response_model=ResumeRunResponse)
+async def resume_run(
+    run_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> ResumeRunResponse:
+    """
+    Re-queue a stalled or killed pipeline job to resume code generation.
+    Only valid for runs in 'generating' or 'architecting' status.
+    Skips already-complete files and continues from where the job died.
+    """
+    from app.api.main import get_build_queue
+
+    result = await session.execute(select(ForgeRun).where(ForgeRun.run_id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status not in (RunStatus.GENERATING.value, RunStatus.ARCHITECTING.value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Run is in status '{run.status}'. Resume only valid for generating or architecting.",
+        )
+
+    resume_from = "generating" if run.status == RunStatus.GENERATING.value else "architecture"
+
+    queue = get_build_queue()
+    queue.enqueue(
+        run_pipeline_sync,
+        run_id,
+        resume_from,
+        job_id=f"build-{run_id}-resume",
+        job_timeout=7200,
+    )
+
+    logger.info(f"[{run_id}] Pipeline re-queued for resume from '{resume_from}'")
+    return ResumeRunResponse(
+        run_id=run_id,
+        status=run.status,
+        message=f"Pipeline re-queued. Resuming from '{resume_from}', skipping completed files.",
     )
 
 
