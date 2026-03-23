@@ -187,7 +187,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
     // Show run list or detail based on selection
     if (showRunList || !selectedRun) {
       return (
-        <div className="flex flex-col h-full -m-6 min-h-0">
+        <div className="flex flex-col h-full min-h-0">
           <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
             <h2 className="font-['Bebas_Neue'] text-2xl text-gray-100 tracking-widest">
               RESULTS
@@ -237,7 +237,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
 
     // Mobile detail view
     return (
-      <div className="flex flex-col h-full -m-6 min-h-0">
+      <div className="flex flex-col h-full min-h-0">
         {/* Back header */}
         <div className="p-4 border-b border-gray-800 flex items-center gap-3 flex-shrink-0">
           <button
