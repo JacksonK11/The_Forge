@@ -160,8 +160,7 @@ export default function App() {
         tabs={TABS}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        renderTab={renderTab}
-        isFullHeight={isFullHeight}
+        tabContent={renderTab}
       />
     );
   }
