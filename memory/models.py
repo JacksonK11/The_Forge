@@ -372,3 +372,38 @@ class AgentRegistry(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ForgeDeployFix(Base):
+    """
+    Tracks every deploy verification attempt and auto-fix applied by deploy_verify_fix_node.
+    One row per verify/fix cycle. Accumulates the full fix history for a run.
+    Stored in KB so future builds include known fixes from the start.
+    """
+
+    __tablename__ = "forge_deploy_fixes"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("forge_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    update_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    health_status: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # "healthy", "unhealthy", "timeout"
+    error_found: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fix_applied: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    files_modified: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    result: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # "health_ok", "fix_applied", "fix_failed", "no_fix_found", "max_attempts"
+    endpoints_tested: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    endpoints_passing: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

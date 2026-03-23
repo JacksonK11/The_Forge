@@ -6,7 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -L https://fly.io/install.sh | FLYCTL_INSTALL=/usr/local sh \
+    && ln -sf /usr/local/bin/flyctl /usr/bin/flyctl
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

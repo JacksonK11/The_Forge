@@ -76,6 +76,7 @@ async def github_push_node(state: "PipelineState") -> "PipelineState":
             values: dict = {"github_push_status": push_status}
             if repo_url:
                 values["github_repo_url"] = repo_url
+                state.github_repo_url = repo_url  # propagate to pipeline state
             await session.execute(
                 update(ForgeRun)
                 .where(ForgeRun.run_id == state.run_id)

@@ -237,6 +237,17 @@ ABSOLUTE RULES — violating any of these means the file will be rejected and re
 9. Loguru for all logging — logger.info(), logger.error(), logger.warning(), logger.debug()
 10. The file must work on first deploy with no modifications
 
+LAYER 5 DASHBOARD REQUIREMENTS — mandatory for every React dashboard file:
+Every Layer 5 (web dashboard) file MUST include mobile-first PWA support:
+- index.html: viewport meta with viewport-fit=cover and maximum-scale=1; apple-mobile-web-app-capable, apple-mobile-web-app-status-bar-style, apple-mobile-web-app-title meta tags; link rel="manifest" href="/manifest.json"; theme-color meta tag
+- manifest.json: complete Web App Manifest with name, short_name, theme_color="#6B21A8", background_color="#08061A", display="standalone", start_url="/", icons for 192px and 512px
+- sw.js: service worker with install (cache app shell), fetch (cache-first), and activate (cleanup old caches) handlers
+- Layout: responsive design — sidebar on desktop (≥768px), bottom tab bar on mobile (<768px)
+- All input and textarea elements: minimum font-size 16px (prevents iOS Safari zoom on focus)
+- Safe area padding for iPhone notch and home indicator: env(safe-area-inset-top), env(safe-area-inset-bottom)
+- All interactive elements: minimum 44px touch target (min-height: 44px, min-width: 44px)
+- Mobile containers: use position:fixed + inset:0 (NOT height:100vh + overflow:hidden which clips on iOS Safari)
+
 Generate only the file content. No explanations. No markdown code fences. Just the raw file."""
 
 CODEGEN_USER = """Generate the complete, production-ready content for this file.

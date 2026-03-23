@@ -124,7 +124,23 @@ async def run_update_pipeline(update_id: str) -> None:
         f"files_changed={len(state.changed_files)}"
     )
 
-    # ── Stage 5: Notify ───────────────────────────────────────────────────────
+    # ── Stage 5: Deploy verification and auto-fix (optional) ─────────────────
+    try:
+        from pipeline.nodes.deploy_verify_fix_node import deploy_verify_fix_update_node
+        # Derive agent slug from repo URL (e.g. github.com/user/buildright-ai-agent → buildright-ai-agent)
+        repo_slug = state.repo_url.rstrip("/").split("/")[-1]
+        await deploy_verify_fix_update_node(
+            update_id=update_id,
+            repo_url=state.repo_url,
+            agent_slug=repo_slug,
+            title=state.title,
+        )
+    except Exception as verify_exc:
+        logger.error(
+            f"[{update_id}] Deploy verify stage failed (non-blocking): {verify_exc}"
+        )
+
+    # ── Stage 6: Notify ───────────────────────────────────────────────────────
     try:
         await _notify_update_complete(state, duration)
     except Exception as notify_exc:

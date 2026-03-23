@@ -58,6 +58,7 @@ class PipelineState:
     # GitHub auto-push
     repo_name: Optional[str] = None
     push_to_github: bool = False
+    github_repo_url: Optional[str] = None
 
     # Timing
     started_at: float = field(default_factory=time.time)
@@ -133,7 +134,11 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
     from pipeline.nodes.github_push_node import github_push_node
     state = await github_push_node(state)
 
-    # ── Stage 7: Complete ─────────────────────────────────────────────────────
+    # ── Stage 7: Deploy verification and auto-fix (optional) ─────────────────
+    from pipeline.nodes.deploy_verify_fix_node import deploy_verify_fix_node
+    state = await deploy_verify_fix_node(state)
+
+    # ── Stage 8: Complete ─────────────────────────────────────────────────────
     duration = time.time() - state.started_at
     await _update_run_status(run_id, RunStatus.COMPLETE.value)
     logger.info(

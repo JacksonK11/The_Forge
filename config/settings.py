@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # ── GitHub (optional — enables auto-push of generated codebases) ─────────
     github_token: Optional[str] = None
 
+    # ── Fly.io (enables deploy verification and auto-fix) ─────────────────────
+    fly_api_token: Optional[str] = None
+
+    # ── Deploy verification ───────────────────────────────────────────────────
+    max_deploy_fix_attempts: int = 5
+
     # ── The Office (optional — set when Agent 5 is deployed) ─────────────────
     office_webhook_url: Optional[str] = None
 
