@@ -3,9 +3,13 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # System dependencies for asyncpg, psycopg2, and document parsing
+# libxml2/libxslt: required by python-docx (lxml dependency)
+# libpq-dev: required by asyncpg/psycopg2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    libxml2-dev \
+    libxslt1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

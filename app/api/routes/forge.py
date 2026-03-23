@@ -15,6 +15,7 @@ GET  /forge/updates/{update_id}                   — get update run detail
 import io
 import re
 import uuid
+from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -148,6 +149,7 @@ async def submit_blueprint_file(
         file_bytes = await file.read()
         blueprint_text = _extract_text_from_file(file_bytes, filename)
     except Exception as exc:
+        logger.error(f"Failed to parse uploaded file '{filename}': {exc}")
         raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
 
     if len(blueprint_text.strip()) < 50:
@@ -456,22 +458,46 @@ def _slug(title: str) -> str:
 
 
 def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
-    """Extract plain text from .docx or .pdf file bytes."""
-    if filename.endswith(".docx"):
-        import docx
-        import io as _io
+    """
+    Extract plain text from .docx or .pdf file bytes.
 
-        doc = docx.Document(_io.BytesIO(file_bytes))
-        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    Uses python-docx for Word documents and pypdf for PDF files.
+    Returns extracted text with paragraphs/pages joined by newlines.
+    """
+    lower_filename = filename.lower()
 
-    if filename.endswith(".pdf"):
-        import io as _io
+    if lower_filename.endswith(".docx"):
+        try:
+            from docx import Document
 
-        from pypdf import PdfReader
+            doc = Document(BytesIO(file_bytes))
+            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            logger.info(
+                f"Extracted {len(text)} chars from .docx file '{filename}' "
+                f"({len(doc.paragraphs)} paragraphs)"
+            )
+            return text
+        except Exception as exc:
+            logger.error(f"Failed to extract text from .docx '{filename}': {exc}")
+            raise ValueError(f"Failed to parse .docx file: {exc}") from exc
 
-        reader = PdfReader(_io.BytesIO(file_bytes))
-        return "\n".join(
-            page.extract_text() or "" for page in reader.pages
-        )
+    if lower_filename.endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
 
-    raise ValueError(f"Unsupported file type: {filename}. Use .docx or .pdf")
+            reader = PdfReader(BytesIO(file_bytes))
+            text = "\n".join(
+                page.extract_text() or "" for page in reader.pages
+            )
+            logger.info(
+                f"Extracted {len(text)} chars from .pdf file '{filename}' "
+                f"({len(reader.pages)} pages)"
+            )
+            return text
+        except Exception as exc:
+            logger.error(f"Failed to extract text from .pdf '{filename}': {exc}")
+            raise ValueError(f"Failed to parse .pdf file: {exc}") from exc
+
+    raise ValueError(
+        f"Unsupported file type: {filename}. Use .docx or .pdf"
+    )

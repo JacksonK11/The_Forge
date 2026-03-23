@@ -81,6 +81,31 @@ export async function registerAgent(payload) {
   return request("POST", "/forge/register-agent", payload);
 }
 
+// ─── File Upload (Server-side text extraction) ────────────────────────────────
+
+export async function submitFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${BASE_URL}/forge/submit-file`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${API_SECRET}`,
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      errMsg = data.detail || data.message || errMsg;
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
+
 // ─── Forge Updates ────────────────────────────────────────────────────────────
 
 export async function submitUpdate(payload) {

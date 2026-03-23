@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback } from 'react';
 
 const TEXT_EXTENSIONS = new Set([
@@ -5,16 +6,38 @@ const TEXT_EXTENSIONS = new Set([
   'less', 'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env', 'sh',
   'bash', 'zsh', 'fish', 'bat', 'cmd', 'ps1', 'rb', 'go', 'rs', 'java',
   'kt', 'kts', 'scala', 'c', 'h', 'cpp', 'hpp', 'cs', 'swift', 'm', 'mm',
-  'r', 'R', 'jl', 'lua', 'pl', 'pm', 'php', 'sql', 'graphql', 'gql',
+  'r', 'jl', 'lua', 'pl', 'pm', 'php', 'sql', 'graphql', 'gql',
   'proto', 'xml', 'svg', 'csv', 'tsv', 'log', 'diff', 'patch', 'makefile',
   'dockerfile', 'gitignore', 'gitattributes', 'editorconfig', 'prettierrc',
   'eslintrc', 'babelrc', 'webpack', 'vite', 'vue', 'svelte', 'astro',
   'mdx', 'tex', 'bib', 'srt', 'vtt', 'asm', 's', 'tf', 'hcl', 'nix',
   'ex', 'exs', 'erl', 'hrl', 'hs', 'lhs', 'ml', 'mli', 'clj', 'cljs',
   'cljc', 'edn', 'elm', 'purs', 'dart', 'v', 'sv', 'vhd', 'vhdl',
+  'lock', 'pip', 'pipfile', 'gemfile', 'rakefile', 'procfile', 'vagrantfile',
+  'gradle', 'cmake', 'meson', 'ninja', 'bazel', 'build', 'bzl',
+  'properties', 'plist', 'manifest', 'htaccess', 'nginx',
+  'cjs', 'mjs', 'mts', 'cts', 'jsonc', 'json5', 'jsonl', 'ndjson',
+  'graphqlrc', 'eslintignore', 'npmrc', 'yarnrc', 'nvmrc',
+  'dockerignore', 'browserslistrc', 'stylelintrc',
+  'prisma', 'sol', 'vy', 'move', 'cairo', 'circom',
+  'tf', 'tfvars', 'hcl', 'nomad', 'sentinel',
+  'robot', 'feature', 'story', 'stories',
+  'rmd', 'qmd', 'ipynb',
+  'snap', 'test', 'spec',
+  'env', 'env.local', 'env.development', 'env.production', 'env.test',
+  'cfg', 'config', 'rc', 'rules',
 ]);
 
-const BINARY_EXTENSIONS = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'zip', 'tar', 'gz', 'bz2', 'rar', '7z', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'mp3', 'mp4', 'wav', 'avi', 'mov', 'mkv', 'woff', 'woff2', 'ttf', 'otf', 'eot', 'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'db', 'sqlite']);
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'tiff', 'tif',
+  'mp3', 'mp4', 'wav', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'ogg', 'webm',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'db', 'sqlite',
+  'zip', 'tar', 'gz', 'bz2', 'rar', '7z', 'xz', 'zst',
+  'xlsx', 'xls', 'pptx', 'ppt',
+  'class', 'pyc', 'pyo', 'o', 'obj', 'a', 'lib',
+  'iso', 'img', 'dmg',
+]);
 
 const EXTRACTABLE_EXTENSIONS = new Set(['pdf', 'docx']);
 
@@ -28,12 +51,18 @@ function isTextFile(filename) {
   const ext = getExtension(filename);
   if (TEXT_EXTENSIONS.has(ext)) return true;
   if (BINARY_EXTENSIONS.has(ext)) return false;
-  // Default: treat unknown extensions as text
+  if (EXTRACTABLE_EXTENSIONS.has(ext)) return false;
+  // Default: treat unknown extensions as text (code files, configs, etc.)
   return true;
 }
 
 function isExtractable(filename) {
   return EXTRACTABLE_EXTENSIONS.has(getExtension(filename));
+}
+
+function isBinaryNonExtractable(filename) {
+  const ext = getExtension(filename);
+  return BINARY_EXTENSIONS.has(ext);
 }
 
 function formatFileSize(bytes) {
@@ -58,167 +87,184 @@ function getBadgeColor(ext) {
     csv: { bg: 'rgba(34, 197, 94, 0.2)', border: 'rgba(34, 197, 94, 0.4)', text: '#86efac' },
     html: { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' },
     css: { bg: 'rgba(99, 102, 241, 0.2)', border: 'rgba(99, 102, 241, 0.4)', text: '#a5b4fc' },
+    scss: { bg: 'rgba(99, 102, 241, 0.2)', border: 'rgba(99, 102, 241, 0.4)', text: '#a5b4fc' },
     sql: { bg: 'rgba(14, 165, 233, 0.2)', border: 'rgba(14, 165, 233, 0.4)', text: '#7dd3fc' },
     docx: { bg: 'rgba(59, 130, 246, 0.2)', border: 'rgba(59, 130, 246, 0.4)', text: '#93c5fd' },
     pdf: { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' },
     sh: { bg: 'rgba(34, 197, 94, 0.2)', border: 'rgba(34, 197, 94, 0.4)', text: '#86efac' },
+    bash: { bg: 'rgba(34, 197, 94, 0.2)', border: 'rgba(34, 197, 94, 0.4)', text: '#86efac' },
     dockerfile: { bg: 'rgba(14, 165, 233, 0.2)', border: 'rgba(14, 165, 233, 0.4)', text: '#7dd3fc' },
     go: { bg: 'rgba(14, 165, 233, 0.2)', border: 'rgba(14, 165, 233, 0.4)', text: '#7dd3fc' },
     rs: { bg: 'rgba(234, 88, 12, 0.2)', border: 'rgba(234, 88, 12, 0.4)', text: '#fdba74' },
     java: { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' },
     rb: { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' },
+    c: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#d1d5db' },
+    cpp: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#d1d5db' },
+    h: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#d1d5db' },
+    hpp: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#d1d5db' },
+    swift: { bg: 'rgba(234, 88, 12, 0.2)', border: 'rgba(234, 88, 12, 0.4)', text: '#fdba74' },
+    kt: { bg: 'rgba(168, 85, 247, 0.2)', border: 'rgba(168, 85, 247, 0.4)', text: '#c4b5fd' },
+    scala: { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' },
+    dart: { bg: 'rgba(14, 165, 233, 0.2)', border: 'rgba(14, 165, 233, 0.4)', text: '#7dd3fc' },
+    vue: { bg: 'rgba(34, 197, 94, 0.2)', border: 'rgba(34, 197, 94, 0.4)', text: '#86efac' },
+    svelte: { bg: 'rgba(234, 88, 12, 0.2)', border: 'rgba(234, 88, 12, 0.4)', text: '#fdba74' },
+    prisma: { bg: 'rgba(99, 102, 241, 0.2)', border: 'rgba(99, 102, 241, 0.4)', text: '#a5b4fc' },
+    graphql: { bg: 'rgba(236, 72, 153, 0.2)', border: 'rgba(236, 72, 153, 0.4)', text: '#f9a8d4' },
+    proto: { bg: 'rgba(34, 197, 94, 0.2)', border: 'rgba(34, 197, 94, 0.4)', text: '#86efac' },
+    xml: { bg: 'rgba(234, 88, 12, 0.2)', border: 'rgba(234, 88, 12, 0.4)', text: '#fdba74' },
+    env: { bg: 'rgba(234, 179, 8, 0.2)', border: 'rgba(234, 179, 8, 0.4)', text: '#fde047' },
+    ini: { bg: 'rgba(156, 163, 175, 0.2)', border: 'rgba(156, 163, 175, 0.4)', text: '#d1d5db' },
+    cfg: { bg: 'rgba(156, 163, 175, 0.2)', border: 'rgba(156, 163, 175, 0.4)', text: '#d1d5db' },
+    conf: { bg: 'rgba(156, 163, 175, 0.2)', border: 'rgba(156, 163, 175, 0.4)', text: '#d1d5db' },
+    lock: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#9ca3af' },
+    tf: { bg: 'rgba(99, 102, 241, 0.2)', border: 'rgba(99, 102, 241, 0.4)', text: '#a5b4fc' },
+    sol: { bg: 'rgba(107, 114, 128, 0.2)', border: 'rgba(107, 114, 128, 0.4)', text: '#d1d5db' },
   };
   const defaultColor = { bg: 'rgba(107, 33, 168, 0.2)', border: 'rgba(107, 33, 168, 0.4)', text: '#c4b5fd' };
   return colors[ext] || defaultColor;
 }
 
 /**
- * Read a single file's text content.
+ * Read a single file's text content client-side.
  * For text files, reads as UTF-8 text.
- * For .docx and .pdf, attempts basic text extraction client-side.
+ * For extractable binary files (.docx, .pdf), returns a placeholder
+ * indicating server-side extraction is needed, along with the raw file object.
  * For other binary files, returns a placeholder note.
  */
-function readFileContent(fileEntry) {
+function readFileContentClientSide(fileEntry) {
   return new Promise((resolve) => {
     const { file, name } = fileEntry;
     const ext = getExtension(name);
 
-    if (ext === 'pdf') {
-      // PDF: read as text with basic extraction attempt
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const text = e.target.result;
-          // Try to extract readable text from PDF binary
-          // This is a basic approach; for full extraction, a library like pdf.js would be needed
-          const extracted = extractTextFromPDFBinary(text);
-          if (extracted && extracted.trim().length > 20) {
-            resolve({ name, content: extracted });
-          } else {
-            resolve({ name, content: `[Binary PDF file: ${name} — ${formatFileSize(file.size)}. Upload to server for full text extraction.]` });
-          }
-        } catch {
-          resolve({ name, content: `[Binary PDF file: ${name} — ${formatFileSize(file.size)}. Upload to server for full text extraction.]` });
-        }
-      };
-      reader.onerror = () => {
-        resolve({ name, content: `[Error reading file: ${name}]` });
-      };
-      reader.readAsText(file, 'utf-8');
-      return;
-    }
-
-    if (ext === 'docx') {
-      // DOCX: read as ArrayBuffer and extract text from XML parts
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const extracted = await extractTextFromDocx(e.target.result);
-          if (extracted && extracted.trim().length > 0) {
-            resolve({ name, content: extracted });
-          } else {
-            resolve({ name, content: `[DOCX file: ${name} — ${formatFileSize(file.size)}. Upload to server for full text extraction.]` });
-          }
-        } catch {
-          resolve({ name, content: `[DOCX file: ${name} — ${formatFileSize(file.size)}. Upload to server for full text extraction.]` });
-        }
-      };
-      reader.onerror = () => {
-        resolve({ name, content: `[Error reading file: ${name}]` });
-      };
-      reader.readAsArrayBuffer(file);
+    if (EXTRACTABLE_EXTENSIONS.has(ext)) {
+      // These files need server-side extraction — return marker
+      resolve({
+        name,
+        content: null,
+        needsServerExtraction: true,
+        file,
+        ext,
+        placeholder: `[${ext.toUpperCase()} file: ${name} — ${formatFileSize(file.size)}. Will be extracted server-side.]`,
+      });
       return;
     }
 
     if (isTextFile(name)) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        resolve({ name, content: e.target.result });
+        resolve({
+          name,
+          content: e.target.result,
+          needsServerExtraction: false,
+          file: null,
+          ext,
+          placeholder: null,
+        });
       };
       reader.onerror = () => {
-        resolve({ name, content: `[Error reading file: ${name}]` });
+        resolve({
+          name,
+          content: `[Error reading file: ${name}]`,
+          needsServerExtraction: false,
+          file: null,
+          ext,
+          placeholder: null,
+        });
       };
       reader.readAsText(file, 'utf-8');
       return;
     }
 
     // Binary file — can't extract text client-side
-    resolve({ name, content: `[Binary file: ${name} — ${formatFileSize(file.size)}]` });
+    resolve({
+      name,
+      content: `[Binary file: ${name} — ${formatFileSize(file.size)}]`,
+      needsServerExtraction: false,
+      file: null,
+      ext,
+      placeholder: null,
+    });
   });
 }
 
 /**
- * Basic PDF text extraction from raw binary string.
- * Extracts text between BT/ET blocks. This is rudimentary; 
- * for production use, pdf.js or server-side extraction is recommended.
+ * Submit a file to the server for text extraction (for .docx, .pdf, etc).
+ * Calls the /forge/submit-file endpoint and returns the extracted text.
+ *
+ * @param {File} file - The raw File object to upload
+ * @param {string} apiBase - The API base URL
+ * @param {string} apiKey - The API secret key for authorization
+ * @returns {Promise<string>} The extracted text content
  */
-function extractTextFromPDFBinary(raw) {
-  const lines = [];
-  // Look for text in parentheses within BT...ET blocks
-  const btEtRegex = /BT\s([\s\S]*?)ET/g;
-  let match;
-  while ((match = btEtRegex.exec(raw)) !== null) {
-    const block = match[1];
-    const textRegex = /\(([^)]*)\)/g;
-    let textMatch;
-    while ((textMatch = textRegex.exec(block)) !== null) {
-      const decoded = textMatch[1]
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '')
-        .replace(/\\\\/g, '\\')
-        .replace(/\\([()])/g, '$1');
-      if (decoded.trim()) {
-        lines.push(decoded);
-      }
-    }
+async function extractFileOnServer(file, apiBase, apiKey) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${apiBase}/forge/submit-file`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Server extraction failed (${response.status}): ${errorText}`);
   }
-  return lines.join(' ');
-}
 
-/**
- * Basic DOCX text extraction.
- * DOCX files are ZIP archives containing XML. We look for word/document.xml
- * and extract text from <w:t> tags.
- */
-async function extractTextFromDocx(arrayBuffer) {
-  try {
-    // Use the browser's built-in JSZip-like capabilities or manual ZIP parsing
-    // For simplicity, we use a basic approach to find XML content
-    const uint8 = new Uint8Array(arrayBuffer);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(uint8);
-
-    // Find XML content within the DOCX ZIP
-    const paragraphs = [];
-    const wtRegex = /<w:t[^>]*>([^<]*)<\/w:t>/g;
-    let match;
-    while ((match = wtRegex.exec(text)) !== null) {
-      if (match[1]) {
-        paragraphs.push(match[1]);
-      }
-    }
-
-    if (paragraphs.length > 0) {
-      return paragraphs.join(' ');
-    }
-
-    return '';
-  } catch {
-    return '';
-  }
+  const data = await response.json();
+  // The server returns { text: "..." } with the extracted content
+  return data.text || data.content || '';
 }
 
 /**
  * Read all files and combine their contents into labeled sections.
+ * For extractable files (.docx, .pdf), sends them to the server for extraction.
  * Returns a string with format:
  * === filename.ext ===
  * <file contents>
- * 
+ *
  * For each file.
+ *
+ * @param {Array} fileEntries - Array of file entry objects from the grid
+ * @param {Object} options - Options for server extraction
+ * @param {string} options.apiBase - API base URL
+ * @param {string} options.apiKey - API secret key
+ * @param {Function} options.onProgress - Optional callback for progress updates
+ * @returns {Promise<string>} Combined text of all files
  */
-export async function combineFileContents(fileEntries) {
+export async function combineFileContents(fileEntries, options = {}) {
   if (!fileEntries || fileEntries.length === 0) return '';
 
-  const results = await Promise.all(fileEntries.map(readFileContent));
+  const { apiBase, apiKey, onProgress } = options;
+  const results = [];
+
+  for (let i = 0; i < fileEntries.length; i++) {
+    const entry = fileEntries[i];
+    if (onProgress) {
+      onProgress({ current: i + 1, total: fileEntries.length, fileName: entry.name });
+    }
+
+    const clientResult = await readFileContentClientSide(entry);
+
+    if (clientResult.needsServerExtraction && apiBase && apiKey) {
+      try {
+        const extractedText = await extractFileOnServer(clientResult.file, apiBase, apiKey);
+        results.push({ name: entry.name, content: extractedText });
+      } catch (err) {
+        results.push({
+          name: entry.name,
+          content: `[Server extraction failed for ${entry.name}: ${err.message}]`,
+        });
+      }
+    } else if (clientResult.needsServerExtraction) {
+      results.push({ name: entry.name, content: clientResult.placeholder });
+    } else {
+      results.push({ name: entry.name, content: clientResult.content });
+    }
+  }
+
   const sections = results.map(({ name, content }) => {
     return `=== ${name} ===\n${content}`;
   });
@@ -228,13 +274,73 @@ export async function combineFileContents(fileEntries) {
 
 /**
  * Read all file contents and return as an array of { name, content } objects.
+ * For extractable files, sends them to the server for extraction.
+ *
+ * @param {Array} fileEntries - Array of file entry objects from the grid
+ * @param {Object} options - Options for server extraction
+ * @param {string} options.apiBase - API base URL
+ * @param {string} options.apiKey - API secret key
+ * @param {Function} options.onProgress - Optional callback for progress updates
+ * @returns {Promise<Array<{name: string, content: string}>>} Array of file content objects
  */
-export async function readAllFileContents(fileEntries) {
+export async function readAllFileContents(fileEntries, options = {}) {
   if (!fileEntries || fileEntries.length === 0) return [];
-  return Promise.all(fileEntries.map(readFileContent));
+
+  const { apiBase, apiKey, onProgress } = options;
+  const results = [];
+
+  for (let i = 0; i < fileEntries.length; i++) {
+    const entry = fileEntries[i];
+    if (onProgress) {
+      onProgress({ current: i + 1, total: fileEntries.length, fileName: entry.name });
+    }
+
+    const clientResult = await readFileContentClientSide(entry);
+
+    if (clientResult.needsServerExtraction && apiBase && apiKey) {
+      try {
+        const extractedText = await extractFileOnServer(clientResult.file, apiBase, apiKey);
+        results.push({ name: entry.name, content: extractedText });
+      } catch (err) {
+        results.push({
+          name: entry.name,
+          content: `[Server extraction failed for ${entry.name}: ${err.message}]`,
+        });
+      }
+    } else if (clientResult.needsServerExtraction) {
+      results.push({ name: entry.name, content: clientResult.placeholder });
+    } else {
+      results.push({ name: entry.name, content: clientResult.content });
+    }
+  }
+
+  return results;
 }
 
-export default function FileUploadGrid({ files, setFiles }) {
+/**
+ * Get the list of files that need server-side extraction.
+ * Useful for the parent component to know which files will require API calls.
+ *
+ * @param {Array} fileEntries - Array of file entry objects from the grid
+ * @returns {Array} Files that need server extraction
+ */
+export function getExtractableFiles(fileEntries) {
+  if (!fileEntries || fileEntries.length === 0) return [];
+  return fileEntries.filter((entry) => isExtractable(entry.name));
+}
+
+/**
+ * Get the list of files that can be read client-side as text.
+ *
+ * @param {Array} fileEntries - Array of file entry objects from the grid
+ * @returns {Array} Files readable client-side
+ */
+export function getTextFiles(fileEntries) {
+  if (!fileEntries || fileEntries.length === 0) return [];
+  return fileEntries.filter((entry) => isTextFile(entry.name));
+}
+
+export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -253,11 +359,15 @@ export default function FileUploadGrid({ files, setFiles }) {
         size,
         isText: isTextFile(name),
         isExtractable: isExtractable(name),
+        isBinary: isBinaryNonExtractable(name),
         lineCount: null,
         textPreview: null,
+        serverExtracted: false,
+        extractedContent: null,
+        extractionError: null,
       };
 
-      // For text files, read line count
+      // For text files, read line count and preview
       if (isTextFile(name) && !isExtractable(name)) {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -272,11 +382,32 @@ export default function FileUploadGrid({ files, setFiles }) {
         reader.readAsText(file, 'utf-8');
       }
 
+      // For extractable files, trigger server-side extraction if callback provided
+      if (isExtractable(name) && onServerExtract) {
+        onServerExtract(file, id).then((extractedText) => {
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === id
+                ? { ...f, serverExtracted: true, extractedContent: extractedText }
+                : f
+            )
+          );
+        }).catch((err) => {
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === id
+                ? { ...f, serverExtracted: false, extractionError: err.message }
+                : f
+            )
+          );
+        });
+      }
+
       return entry;
     });
 
     setFiles((prev) => [...prev, ...newEntries]);
-  }, [setFiles]);
+  }, [setFiles, onServerExtract]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -319,11 +450,12 @@ export default function FileUploadGrid({ files, setFiles }) {
 
   return (
     <div style={{ width: '100%' }}>
-      {/* Hidden file input */}
+      {/* Hidden file input — accept all file types */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
+        accept="*/*"
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
@@ -350,7 +482,7 @@ export default function FileUploadGrid({ files, setFiles }) {
           Drop files here or click to select
         </div>
         <div style={{ fontSize: '12px', color: '#6b7280' }}>
-          Any file type • Multiple files • Unlimited
+          Any file type • .py .js .toml .json .docx .pdf & more • Multiple files
         </div>
       </div>
 
@@ -367,6 +499,11 @@ export default function FileUploadGrid({ files, setFiles }) {
         >
           <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: 600 }}>
             {files.length} file{files.length !== 1 ? 's' : ''} attached
+            {files.some((f) => f.isExtractable) && (
+              <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 400, marginLeft: '8px' }}>
+                ({files.filter((f) => f.isExtractable).length} need server extraction)
+              </span>
+            )}
           </span>
           <button
             onClick={(e) => {
@@ -414,114 +551,16 @@ export default function FileUploadGrid({ files, setFiles }) {
                 style={{
                   position: 'relative',
                   backgroundColor: 'rgba(15, 11, 26, 0.8)',
-                  border: '1px solid rgba(107, 33, 168, 0.25)',
+                  border: `1px solid ${
+                    entry.extractionError
+                      ? 'rgba(239, 68, 68, 0.4)'
+                      : entry.serverExtracted
+                      ? 'rgba(34, 197, 94, 0.3)'
+                      : 'rgba(107, 33, 168, 0.25)'
+                  }`,
                   borderRadius: '10px',
                   padding: '12px',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px',
-                  transition: 'border-color 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.5)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(107, 33, 168, 0.25)';
-                }}
-              >
-                {/* Remove button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemoveFile(entry.id);
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: '6px',
-                    right: '6px',
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    color: '#ef4444',
-                    fontSize: '12px',
-                    lineHeight: '1',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'rgba(239, 68, 68, 0.3)';
-                    e.target.style.color = '#fca5a5';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'rgba(239, 68, 68, 0.1)';
-                    e.target.style.color = '#ef4444';
-                  }}
-                  title={`Remove ${entry.name}`}
-                  aria-label={`Remove ${entry.name}`}
-                >
-                  ✕
-                </button>
-
-                {/* Extension badge */}
-                <span
-                  style={{
-                    display: 'inline-block',
-                    alignSelf: 'flex-start',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    letterSpacing: '0.5px',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    backgroundColor: badgeColor.bg,
-                    border: `1px solid ${badgeColor.border}`,
-                    color: badgeColor.text,
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {displayExt}
-                </span>
-
-                {/* Filename */}
-                <div
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#e2e8f0',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    paddingRight: '16px',
-                  }}
-                  title={entry.name}
-                >
-                  {entry.name}
-                </div>
-
-                {/* File info: line count for text, size for binary */}
-                <div style={{ fontSize: '11px', color: '#6b7280' }}>
-                  {entry.isText && !entry.isExtractable ? (
-                    entry.lineCount !== null ? (
-                      <span>{entry.lineCount.toLocaleString()} lines • {formatFileSize(entry.size)}</span>
-                    ) : (
-                      <span>Reading... • {formatFileSize(entry.size)}</span>
-                    )
-                  ) : entry.isExtractable ? (
-                    <span>📄 Extractable • {formatFileSize(entry.size)}</span>
-                  ) : (
-                    <span>{formatFileSize(entry.size)}</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+                  

@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   submitBuild,
@@ -6,6 +7,7 @@ import {
   getRunPackageBlob,
   getTemplates,
   triggerDownload,
+  submitFile,
 } from "../api.js";
 import FileUploadGrid from "../components/FileUploadGrid.jsx";
 
@@ -161,7 +163,10 @@ function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
   );
 }
 
-// Binary file extensions that cannot be read as text
+// Binary file extensions that need server-side extraction
+const SERVER_EXTRACT_EXTENSIONS = new Set(["docx", "pdf"]);
+
+// Binary file extensions that cannot be read as text at all
 const BINARY_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
   "mp3", "mp4", "wav", "avi", "mov", "mkv", "flac",
@@ -177,44 +182,14 @@ function getFileExtension(filename) {
   return parts[parts.length - 1].toLowerCase();
 }
 
+function needsServerExtraction(filename) {
+  const ext = getFileExtension(filename);
+  return SERVER_EXTRACT_EXTENSIONS.has(ext);
+}
+
 function isBinaryFile(filename) {
   const ext = getFileExtension(filename);
-  return BINARY_EXTENSIONS.has(ext);
-}
-
-async function extractDocxText(file) {
-  try {
-    const mammoth = await import("mammoth");
-    const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    return result.value || "";
-  } catch (err) {
-    console.error("Failed to extract .docx text:", err);
-    return `[Error extracting text from ${file.name}: ${err.message}]`;
-  }
-}
-
-async function extractPdfText(file) {
-  try {
-    const pdfjsLib = await import("pdfjs-dist");
-    // Set worker source — use CDN for pdfjs worker
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-    }
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const pages = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item) => item.str).join(" ");
-      pages.push(pageText);
-    }
-    return pages.join("\n\n");
-  } catch (err) {
-    console.error("Failed to extract .pdf text:", err);
-    return `[Error extracting text from ${file.name}: ${err.message}]`;
-  }
+  return BINARY_EXTENSIONS.has(ext) || SERVER_EXTRACT_EXTENSIONS.has(ext);
 }
 
 async function readFileAsText(file) {
@@ -226,19 +201,30 @@ async function readFileAsText(file) {
   });
 }
 
+async function extractFileContentViaServer(file) {
+  try {
+    const result = await submitFile(file);
+    return result.extracted_text || result.text || `[Server returned no text for ${file.name}]`;
+  } catch (err) {
+    console.error(`Failed to extract ${file.name} via server:`, err);
+    return `[Error extracting text from ${file.name}: ${err.message}]`;
+  }
+}
+
 async function extractFileContent(file) {
   const ext = getFileExtension(file.name);
 
-  if (ext === "docx") {
-    return await extractDocxText(file);
+  // .docx and .pdf — send to server for extraction
+  if (SERVER_EXTRACT_EXTENSIONS.has(ext)) {
+    return await extractFileContentViaServer(file);
   }
-  if (ext === "pdf") {
-    return await extractPdfText(file);
-  }
-  if (isBinaryFile(file.name)) {
+
+  // Pure binary files — just note them
+  if (BINARY_EXTENSIONS.has(ext)) {
     return `[Binary file: ${file.name} (${file.size} bytes)]`;
   }
-  // All other files — try reading as text
+
+  // All other files — try reading as text client-side
   try {
     return await readFileAsText(file);
   } catch {
