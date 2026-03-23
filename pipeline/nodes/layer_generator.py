@@ -198,10 +198,15 @@ async def _generate_file_content(prompt: str) -> str:
     """Call Claude Sonnet to generate file content."""
     response = client.messages.create(
         model=settings.claude_model,
-        max_tokens=32000,
+        max_tokens=64000,
         system=CODEGEN_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
+    if response.stop_reason == "max_tokens":
+        logger.warning(
+            f"Generation hit max_tokens limit — file may be truncated. "
+            f"Consider splitting into smaller modules."
+        )
     content = response.content[0].text.strip()
     # Strip markdown fences if model adds them despite instructions
     if content.startswith("```"):
