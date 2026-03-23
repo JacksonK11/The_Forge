@@ -161,11 +161,23 @@ async def _parse_blueprint(
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
-        # Strip any markdown fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+
+        # Strip markdown fences
+        if "```" in text:
+            for block in text.split("```"):
+                block = block.strip()
+                if block.startswith("json"):
+                    block = block[4:].strip()
+                if block.startswith("{"):
+                    text = block
+                    break
+
+        # If Claude added prose before the JSON, find the first {
+        if not text.startswith("{"):
+            start = text.find("{")
+            if start != -1:
+                text = text[start:]
+
         return json.loads(text)
     except json.JSONDecodeError as exc:
         logger.error(f"Parse response not valid JSON: {exc}")

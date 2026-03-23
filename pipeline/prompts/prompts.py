@@ -64,86 +64,77 @@ The generated codebase must follow this stack:
 - AI: Anthropic Claude (claude-sonnet-4-6 for reasoning, claude-haiku-4-5-20251001 for classification)
 - Embeddings: OpenAI text-embedding-3-small"""
 
-PARSE_USER = """Parse this blueprint document into a precise JSON specification.
+_PARSE_USER_SCHEMA = """Return a JSON object with this exact structure — no prose, no markdown fences, just the JSON:
 
-BLUEPRINT:
-{blueprint_text}
-
-{meta_rules_section}
-
-{knowledge_context_section}
-
-Return a JSON object with this exact structure — no prose, no markdown fences, just the JSON:
-
-{{
+{
   "agent_name": "Human-readable name (e.g. 'BuildRight AI Agent')",
   "agent_slug": "kebab-case-slug (e.g. 'buildright-ai-agent')",
   "description": "One paragraph describing what this agent does",
   "fly_region": "syd or lhr",
   "fly_services": [
-    {{
+    {
       "name": "agent-slug-api",
       "type": "api",
       "machine": "performance-cpu-4x",
       "memory": "2gb",
       "port": 8000,
       "description": "FastAPI server"
-    }}
+    }
   ],
   "external_apis": ["anthropic", "openai", "tavily", "telegram"],
   "database_tables": [
-    {{
+    {
       "name": "table_name",
       "description": "What this table stores",
       "columns": [
-        {{"name": "id", "type": "uuid", "primary_key": true, "nullable": false}},
-        {{"name": "created_at", "type": "datetime", "nullable": false, "default": "now()"}}
+        {"name": "id", "type": "uuid", "primary_key": true, "nullable": false},
+        {"name": "created_at", "type": "datetime", "nullable": false, "default": "now()"}
       ]
-    }}
+    }
   ],
   "api_routes": [
-    {{
+    {
       "method": "POST",
       "path": "/resource",
       "description": "What this route does",
       "auth_required": true,
-      "request_fields": [{{"name": "field", "type": "string", "required": true}}],
-      "response_fields": [{{"name": "field", "type": "string"}}]
-    }}
+      "request_fields": [{"name": "field", "type": "string", "required": true}],
+      "response_fields": [{"name": "field", "type": "string"}]
+    }
   ],
   "dashboard_screens": [
-    {{
+    {
       "name": "Home",
       "description": "What this screen shows and its key components",
       "route": "/",
       "components": ["description of each component"]
-    }}
+    }
   ],
   "background_jobs": [
-    {{
+    {
       "name": "job_function_name",
       "description": "What this background job does",
       "trigger": "scheduled|webhook|manual",
       "schedule": "cron expression if scheduled"
-    }}
+    }
   ],
   "environment_variables": [
-    {{
+    {
       "name": "VARIABLE_NAME",
       "description": "What this is and where to get it",
       "required": true,
       "example": "example_value"
-    }}
+    }
   ],
   "file_list": [
-    {{
+    {
       "path": "path/to/file.py",
       "layer": 1,
       "description": "What this file does",
       "dependencies": ["path/to/dep.py"]
-    }}
+    }
   ]
-}}"""
+}"""
 
 
 def build_parse_prompt(
@@ -151,24 +142,34 @@ def build_parse_prompt(
     meta_rules: list[str] | None = None,
     knowledge_context: str | None = None,
 ) -> str:
-    meta_rules_section = ""
+    # Blueprint text is passed as raw string via concatenation — never through
+    # str.format() — so Python code, f-strings, curly braces, and special
+    # characters in the blueprint are never interpreted as format placeholders.
+    parts = [
+        "Parse this blueprint document into a precise JSON specification.",
+        "",
+        "BLUEPRINT:",
+        blueprint_text,
+        "",
+    ]
+
     if meta_rules:
-        rules_text = "\n".join(f"- {r}" for r in meta_rules)
-        meta_rules_section = f"""ACTIVE GENERATION RULES (apply these to every decision you make):
-{rules_text}
-"""
+        rules_text = "\n".join("- " + r for r in meta_rules)
+        parts += [
+            "ACTIVE GENERATION RULES (apply these to every decision you make):",
+            rules_text,
+            "",
+        ]
 
-    knowledge_context_section = ""
     if knowledge_context:
-        knowledge_context_section = f"""RELEVANT KNOWLEDGE BASE CONTEXT:
-{knowledge_context}
-"""
+        parts += [
+            "RELEVANT KNOWLEDGE BASE CONTEXT:",
+            knowledge_context,
+            "",
+        ]
 
-    return PARSE_USER.format(
-        blueprint_text=blueprint_text,
-        meta_rules_section=meta_rules_section,
-        knowledge_context_section=knowledge_context_section,
-    )
+    parts.append(_PARSE_USER_SCHEMA)
+    return "\n".join(parts)
 
 
 # ── Stage 5: Architecture Mapping ─────────────────────────────────────────────
