@@ -195,7 +195,10 @@ export default function ChatTab({ isMobile = false }) {
   }
 
   return (
-    <div className={`flex flex-col h-full min-h-0 ${isMobile ? "" : "-m-6"}`}>
+    <div
+      className={isMobile ? "" : "-m-6"}
+      style={isMobile ? { display: 'flex', flexDirection: 'column', height: '100%' } : { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+    >
       {/* Header */}
       <div className={`${isMobile ? "px-4 py-3" : "px-6 py-4"} border-b border-gray-800 flex items-center justify-between flex-shrink-0`}>
         <div>

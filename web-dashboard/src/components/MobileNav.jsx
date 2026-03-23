@@ -65,8 +65,8 @@ export default function MobileNav({ activeTab, onTabChange }) {
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 40,
-            backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 150,
+            backgroundColor: 'rgba(0,0,0,0.6)',
           }}
           onClick={() => setShowMore(false)}
         >
@@ -122,15 +122,15 @@ export default function MobileNav({ activeTab, onTabChange }) {
         </div>
       )}
 
-      {/* Bottom nav bar */}
+      {/* Bottom nav bar — fixed at the bottom of the viewport */}
       <nav
         style={{
           position: 'fixed',
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 50,
-          backgroundColor: 'rgba(15, 11, 26, 0.95)',
+          zIndex: 200,
+          backgroundColor: 'rgba(8, 6, 26, 0.95)',
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
           borderTop: '1px solid rgba(107, 33, 168, 0.3)',
