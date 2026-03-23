@@ -156,7 +156,7 @@ async def _parse_blueprint(
     try:
         response = client.messages.create(
             model=settings.claude_model,
-            max_tokens=8192,
+            max_tokens=16000,
             system=PARSE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
