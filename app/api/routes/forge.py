@@ -29,8 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from memory.database import get_db
 from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
-from services.file_extractor import file_extractor
-
 router = APIRouter()
 
 # Supported plain-text extensions that can be decoded as UTF-8 client-side or server-side
@@ -191,7 +189,7 @@ async def submit_with_files(
             )
 
         try:
-            extracted_text = file_extractor.extract_text(filename, file_bytes)
+            extracted_text = _extract_text_from_file(file_bytes, filename)
         except Exception as exc:
             logger.error(f"Failed to extract text from '{filename}': {exc}")
             raise HTTPException(

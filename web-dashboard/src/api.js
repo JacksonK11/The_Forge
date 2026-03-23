@@ -61,11 +61,12 @@ export async function submitBuild(payload) {
   return request("POST", "/forge/submit", payload);
 }
 
-export async function submitBuildWithFiles({ title, blueprint_text, repo_name, files }) {
+export async function submitBuildWithFiles({ title, blueprint_text, repo_name, push_to_github, files }) {
   const formData = new FormData();
   formData.append("title", title || "");
   formData.append("blueprint_text", blueprint_text || "");
   formData.append("repo_name", repo_name || "");
+  formData.append("push_to_github", push_to_github !== false ? "true" : "false");
   if (files && files.length > 0) {
     for (const file of files) {
       formData.append("files", file);
