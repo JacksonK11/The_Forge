@@ -426,13 +426,20 @@ async def resume_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run.status not in (RunStatus.GENERATING.value, RunStatus.ARCHITECTING.value):
+    resumable = (RunStatus.GENERATING.value, RunStatus.ARCHITECTING.value, RunStatus.FAILED.value)
+    if run.status not in resumable:
         raise HTTPException(
             status_code=400,
-            detail=f"Run is in status '{run.status}'. Resume only valid for generating or architecting.",
+            detail=f"Run is in status '{run.status}'. Resume only valid for generating, architecting, or failed.",
         )
 
-    resume_from = "generating" if run.status == RunStatus.GENERATING.value else "architecture"
+    # For failed runs, resume based on how far they got (manifest present = was generating)
+    if run.status == RunStatus.FAILED.value:
+        resume_from = "generating" if run.manifest_json else "resume_from_architecture"
+        run.status = RunStatus.GENERATING.value if run.manifest_json else RunStatus.ARCHITECTING.value
+        await session.commit()
+    else:
+        resume_from = "generating" if run.status == RunStatus.GENERATING.value else "resume_from_architecture"
 
     queue = get_build_queue()
     queue.enqueue(
