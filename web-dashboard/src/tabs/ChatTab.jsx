@@ -271,9 +271,10 @@ export default function ChatTab({ isMobile = false }) {
       <div
         className={`flex-shrink-0 border-t border-gray-800 ${
           isMobile
-            ? "px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+            ? "px-3 pt-3"
             : "px-6 py-4"
         }`}
+        style={isMobile ? { paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' } : undefined}
       >
         {messages.length > 0 && (
           <div className={`flex gap-2 mb-3 overflow-x-auto pb-1 ${isMobile ? "-mx-1 px-1" : ""}`}>
@@ -304,10 +305,10 @@ export default function ChatTab({ isMobile = false }) {
                 : "Message Forge Assistant... (Enter to send, Shift+Enter for newline)"
             }
             rows={1}
-            className={`flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 text-gray-100 placeholder-gray-600 focus:border-purple-600 focus:outline-none transition-colors resize-none max-h-32 overflow-y-auto ${
-              isMobile ? "py-3 text-base" : "py-3 text-sm"
+            className={`flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 text-gray-100 placeholder-gray-600 focus:border-purple-600 focus:outline-none transition-colors resize-none max-h-32 overflow-y-auto py-3 ${
+              isMobile ? "text-base" : "text-sm"
             }`}
-            style={{ minHeight: isMobile ? "44px" : "48px" }}
+            style={{ minHeight: isMobile ? "44px" : "48px", fontSize: isMobile ? "16px" : undefined }}
             onInput={(e) => {
               e.target.style.height = "auto";
               e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px";

@@ -1,31 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-const tabs = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-      </svg>
-    ),
-  },
+const PRIMARY_TABS = [
   {
     id: 'build',
     label: 'Build',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.1-3.4a1.5 1.5 0 010-2.54l5.1-3.4a1.5 1.5 0 012.08.54l.54.94a1.5 1.5 0 01-.54 2.08l-2.56 1.71 2.56 1.71a1.5 1.5 0 01.54 2.08l-.54.94a1.5 1.5 0 01-2.08.54z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 4.5l-3 15" />
-      </svg>
-    ),
-  },
-  {
-    id: 'update',
-    label: 'Update',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
       </svg>
     ),
   },
@@ -34,7 +15,7 @@ const tabs = [
     label: 'Results',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
       </svg>
     ),
   },
@@ -52,64 +33,243 @@ const tabs = [
     label: 'Files',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
       </svg>
     ),
   },
 ];
 
+const MORE_TABS = [
+  { id: 'update', label: 'Update', emoji: '↻' },
+  { id: 'memory', label: 'Memory', emoji: '💡' },
+  { id: 'overview', label: 'Overview', emoji: '◻' },
+  { id: 'pipeline', label: 'Pipeline', emoji: '⚡' },
+  { id: 'architecture', label: 'Architecture', emoji: '⊞' },
+];
+
 export default function MobileNav({ activeTab, onTabChange }) {
+  const [showMore, setShowMore] = useState(false);
+
+  const moreIsActive = MORE_TABS.some((t) => t.id === activeTab);
+
+  function handleTabChange(id) {
+    onTabChange(id);
+    setShowMore(false);
+  }
+
   return (
-    <nav
-      className="fixed bottom-0 left-0 right-0 z-50 bg-[#0f0b1a]/95 backdrop-blur-lg border-t border-purple-900/30"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-    >
-      <div className="flex items-center justify-around px-1 h-16">
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`
-                relative flex flex-col items-center justify-center
-                min-w-[44px] min-h-[44px] px-2 py-1
-                rounded-xl transition-all duration-200 ease-out
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0f0b1a]
-                ${isActive
-                  ? 'text-purple-300'
-                  : 'text-gray-500 hover:text-gray-400 active:text-gray-300'
-                }
-              `}
-              aria-label={tab.label}
-              aria-current={isActive ? 'page' : undefined}
+    <>
+      {/* More drawer overlay */}
+      {showMore && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 40,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+          }}
+          onClick={() => setShowMore(false)}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))',
+              left: 0,
+              right: 0,
+              backgroundColor: '#0f0b1a',
+              borderTop: '1px solid rgba(107, 33, 168, 0.4)',
+              borderRadius: '16px 16px 0 0',
+              padding: '12px 0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                width: '36px',
+                height: '4px',
+                backgroundColor: '#4b3a6e',
+                borderRadius: '2px',
+                margin: '0 auto 12px',
+              }}
+            />
+            {MORE_TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    width: '100%',
+                    padding: '14px 24px',
+                    backgroundColor: isActive ? 'rgba(107, 33, 168, 0.2)' : 'transparent',
+                    border: 'none',
+                    color: isActive ? '#c084fc' : '#9ca3af',
+                    fontSize: '16px',
+                    fontWeight: isActive ? 600 : 400,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: '18px', width: '24px', textAlign: 'center' }}>{tab.emoji}</span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Bottom nav bar */}
+      <nav
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          backgroundColor: 'rgba(15, 11, 26, 0.95)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(107, 33, 168, 0.3)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-around',
+            height: '64px',
+            paddingLeft: '4px',
+            paddingRight: '4px',
+          }}
+        >
+          {PRIMARY_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                style={{
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '44px',
+                  minHeight: '44px',
+                  padding: '4px 8px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  backgroundColor: isActive ? 'rgba(107, 33, 168, 0.15)' : 'transparent',
+                  color: isActive ? '#c084fc' : '#6b7280',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  flex: 1,
+                }}
+                aria-label={tab.label}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                {isActive && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-1px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '32px',
+                      height: '3px',
+                      borderRadius: '2px',
+                      backgroundColor: '#9333ea',
+                      boxShadow: '0 0 8px rgba(147,51,234,0.6)',
+                    }}
+                  />
+                )}
+                <span
+                  style={{
+                    transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                    transition: 'transform 0.2s',
+                    display: 'flex',
+                  }}
+                >
+                  {tab.icon}
+                </span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    marginTop: '2px',
+                    fontWeight: isActive ? 600 : 400,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+
+          {/* More button */}
+          <button
+            onClick={() => setShowMore(!showMore)}
+            style={{
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '44px',
+              minHeight: '44px',
+              padding: '4px 8px',
+              borderRadius: '12px',
+              border: 'none',
+              backgroundColor: (showMore || moreIsActive) ? 'rgba(107, 33, 168, 0.15)' : 'transparent',
+              color: (showMore || moreIsActive) ? '#c084fc' : '#6b7280',
+              cursor: 'pointer',
+              flex: 1,
+            }}
+            aria-label="More"
+          >
+            {(showMore || moreIsActive) && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-1px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '32px',
+                  height: '3px',
+                  borderRadius: '2px',
+                  backgroundColor: '#9333ea',
+                  boxShadow: '0 0 8px rgba(147,51,234,0.6)',
+                }}
+              />
+            )}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ width: '24px', height: '24px', transform: showMore ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
             >
-              {/* Active indicator bar */}
-              {isActive && (
-                <span
-                  className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-purple-600 shadow-[0_0_8px_rgba(147,51,234,0.6)]"
-                  aria-hidden="true"
-                />
-              )}
-
-              {/* Active glow background */}
-              {isActive && (
-                <span
-                  className="absolute inset-0 rounded-xl bg-purple-600/10"
-                  aria-hidden="true"
-                />
-              )}
-
-              <span className={`relative transition-transform duration-200 ${isActive ? 'scale-110' : 'scale-100'}`}>
-                {tab.icon}
-              </span>
-              <span className={`relative text-[10px] mt-0.5 font-medium leading-tight ${isActive ? 'text-purple-300' : 'text-gray-500'}`}>
-                {tab.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </nav>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+            </svg>
+            <span
+              style={{
+                fontSize: '10px',
+                marginTop: '2px',
+                fontWeight: (showMore || moreIsActive) ? 600 : 400,
+                lineHeight: 1.2,
+              }}
+            >
+              More
+            </span>
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }

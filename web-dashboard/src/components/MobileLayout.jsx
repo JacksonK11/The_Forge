@@ -90,6 +90,9 @@ export default function MobileLayout({
     ? activeTabObj.label || activeTabObj.name || activeTab
     : activeTab;
 
+  const FULL_HEIGHT_TABS = new Set(['chat', 'results']);
+  const isFullHeight = FULL_HEIGHT_TABS.has(activeTab);
+
   const renderContent = () => {
     if (tabContent && typeof tabContent === 'function') {
       return tabContent(activeTab);
@@ -159,27 +162,29 @@ export default function MobileLayout({
       {/* Content area */}
       <main
         ref={contentRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        onTouchStart={isFullHeight ? undefined : handleTouchStart}
+        onTouchMove={isFullHeight ? undefined : handleTouchMove}
+        onTouchEnd={isFullHeight ? undefined : handleTouchEnd}
         style={{
           flex: 1,
-          overflowY: 'auto',
+          overflowY: isFullHeight ? 'hidden' : 'auto',
           overflowX: 'hidden',
-          paddingBottom: `${BOTTOM_NAV_HEIGHT + 16}px`,
-          paddingLeft: '12px',
-          paddingRight: '12px',
-          paddingTop: '12px',
+          paddingBottom: isFullHeight ? '0' : `${BOTTOM_NAV_HEIGHT + 16}px`,
+          paddingLeft: isFullHeight ? '0' : '12px',
+          paddingRight: isFullHeight ? '0' : '12px',
+          paddingTop: isFullHeight ? '0' : '12px',
           WebkitOverflowScrolling: 'touch',
           transform: swiping ? `translateX(${swipeOffset}px)` : 'translateX(0)',
           transition: swiping ? 'none' : 'transform 0.25s ease-out',
           willChange: 'transform',
+          minHeight: 0,
         }}
       >
         <div
           style={{
             maxWidth: '100%',
             margin: '0 auto',
+            height: isFullHeight ? '100%' : 'auto',
           }}
         >
           {renderContent()}
@@ -190,7 +195,7 @@ export default function MobileLayout({
       <MobileNav
         tabs={tabs}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        onTabChange={setActiveTab}
         height={BOTTOM_NAV_HEIGHT}
       />
     </div>

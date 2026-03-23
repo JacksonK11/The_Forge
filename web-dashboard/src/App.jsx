@@ -126,6 +126,7 @@ export default function App() {
             key={buildBlueprint}
             initialBlueprint={buildBlueprint}
             onGoToResults={goToResults}
+            isMobile={isMobile}
           />
         );
       case "update":
@@ -142,7 +143,7 @@ export default function App() {
       case "memory":
         return <MemoryTab />;
       case "chat":
-        return <ChatTab />;
+        return <ChatTab isMobile={isMobile} />;
       case "overview":
         return <OverviewTab />;
       case "pipeline":
