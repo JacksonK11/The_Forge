@@ -78,15 +78,23 @@ async def _generate_manifest(spec: dict) -> dict:
     try:
         response = client.messages.create(
             model=settings.claude_model,
-            max_tokens=8192,
+            max_tokens=16000,
             system=ARCHITECTURE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        if "```" in text:
+            for block in text.split("```"):
+                block = block.strip()
+                if block.startswith("json"):
+                    block = block[4:].strip()
+                if block.startswith("{"):
+                    text = block
+                    break
+        if not text.startswith("{"):
+            start = text.find("{")
+            if start != -1:
+                text = text[start:]
         return json.loads(text)
     except json.JSONDecodeError as exc:
         logger.error(f"Architecture manifest not valid JSON: {exc}")

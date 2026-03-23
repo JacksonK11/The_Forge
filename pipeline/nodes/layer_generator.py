@@ -198,7 +198,7 @@ async def _generate_file_content(prompt: str) -> str:
     """Call Claude Sonnet to generate file content."""
     response = client.messages.create(
         model=settings.claude_model,
-        max_tokens=8192,
+        max_tokens=32000,
         system=CODEGEN_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
