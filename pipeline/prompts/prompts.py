@@ -137,6 +137,38 @@ _PARSE_USER_SCHEMA = """Return a JSON object with this exact structure — no pr
 }"""
 
 
+_FILE_SECTION_PREFIX = "=== ATTACHED FILE:"
+_MAX_FILE_LINES = 150
+
+
+def _truncate_attached_files(blueprint_text: str) -> str:
+    """
+    Truncate each attached file section to _MAX_FILE_LINES lines.
+    The parser needs structure and signatures, not full implementations.
+    Full file contents are preserved in the DB for later pipeline stages.
+    """
+    import re
+    sections = re.split(r'(=== ATTACHED FILE: [^\n]+ ===\n)', blueprint_text)
+    result = []
+    i = 0
+    while i < len(sections):
+        part = sections[i]
+        if part.startswith(_FILE_SECTION_PREFIX):
+            # part is the header, sections[i+1] is the file content
+            header = part
+            content = sections[i + 1] if i + 1 < len(sections) else ""
+            lines = content.splitlines()
+            if len(lines) > _MAX_FILE_LINES:
+                truncated = "\n".join(lines[:_MAX_FILE_LINES])
+                content = truncated + f"\n... [{len(lines) - _MAX_FILE_LINES} lines truncated — full file in DB]\n"
+            result.append(header + content)
+            i += 2
+        else:
+            result.append(part)
+            i += 1
+    return "".join(result)
+
+
 def build_parse_prompt(
     blueprint_text: str,
     meta_rules: list[str] | None = None,
@@ -145,6 +177,11 @@ def build_parse_prompt(
     # Blueprint text is passed as raw string via concatenation — never through
     # str.format() — so Python code, f-strings, curly braces, and special
     # characters in the blueprint are never interpreted as format placeholders.
+    # Attached file contents are truncated to 150 lines — the parser needs
+    # structure and API signatures, not full implementations.
+    if _FILE_SECTION_PREFIX in blueprint_text:
+        blueprint_text = _truncate_attached_files(blueprint_text)
+
     parts = [
         "Parse this blueprint document into a precise JSON specification.",
         "",
