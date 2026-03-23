@@ -68,6 +68,382 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   FILE UPLOAD — Drag & Drop Zone
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.file-drop-zone {
+  border: 2px dashed #374151;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  background-color: rgba(17, 24, 39, 0.4);
+  position: relative;
+}
+
+.file-drop-zone:hover {
+  border-color: #6d28d9;
+  background-color: rgba(109, 40, 217, 0.06);
+}
+
+.file-drop-zone.drag-active {
+  border-color: #a855f7;
+  background-color: rgba(168, 85, 247, 0.1);
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15), inset 0 0 20px rgba(168, 85, 247, 0.05);
+}
+
+.file-drop-zone.drag-active .drop-zone-text {
+  color: #c084fc;
+}
+
+.file-drop-zone .drop-zone-icon {
+  color: #4b5563;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.file-drop-zone:hover .drop-zone-icon {
+  color: #7c3aed;
+  transform: translateY(-2px);
+}
+
+.file-drop-zone.drag-active .drop-zone-icon {
+  color: #a855f7;
+  transform: translateY(-4px) scale(1.1);
+}
+
+.file-drop-zone .drop-zone-text {
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.file-drop-zone:hover .drop-zone-text {
+  color: #9ca3af;
+}
+
+.file-drop-zone .drop-zone-hint {
+  color: #4b5563;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FILE UPLOAD — File Count Header
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.file-count-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.file-count-header .file-count-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #c084fc;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-count-header .file-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background-color: rgba(124, 58, 237, 0.25);
+  border: 1px solid rgba(124, 58, 237, 0.4);
+  color: #c084fc;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.file-count-header .file-clear-btn {
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  border: none;
+  background: none;
+}
+
+.file-count-header .file-clear-btn:hover {
+  color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FILE UPLOAD — File Card Grid
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.file-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.625rem;
+}
+
+.file-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  background-color: rgba(17, 24, 39, 0.6);
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  overflow: hidden;
+}
+
+.file-card:hover {
+  border-color: #374151;
+  background-color: rgba(17, 24, 39, 0.8);
+}
+
+.file-card .file-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.file-card .file-card-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.file-card .file-card-meta {
+  font-size: 0.6875rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FILE UPLOAD — File Type Badges
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.file-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+/* Python */
+.file-type-badge.badge-py {
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+}
+
+/* JavaScript / JSX */
+.file-type-badge.badge-js,
+.file-type-badge.badge-jsx {
+  background-color: rgba(234, 179, 8, 0.2);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  color: #facc15;
+}
+
+/* TypeScript / TSX */
+.file-type-badge.badge-ts,
+.file-type-badge.badge-tsx {
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+}
+
+/* JSON */
+.file-type-badge.badge-json {
+  background-color: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+}
+
+/* TOML / YAML / YML */
+.file-type-badge.badge-toml,
+.file-type-badge.badge-yaml,
+.file-type-badge.badge-yml {
+  background-color: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+
+/* Markdown */
+.file-type-badge.badge-md {
+  background-color: rgba(156, 163, 175, 0.2);
+  border: 1px solid rgba(156, 163, 175, 0.4);
+  color: #d1d5db;
+}
+
+/* Text */
+.file-type-badge.badge-txt {
+  background-color: rgba(156, 163, 175, 0.15);
+  border: 1px solid rgba(156, 163, 175, 0.3);
+  color: #9ca3af;
+}
+
+/* CSV */
+.file-type-badge.badge-csv {
+  background-color: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+
+/* HTML / CSS */
+.file-type-badge.badge-html {
+  background-color: rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  color: #fb923c;
+}
+
+.file-type-badge.badge-css {
+  background-color: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}
+
+/* DOCX */
+.file-type-badge.badge-docx,
+.file-type-badge.badge-doc {
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+/* PDF */
+.file-type-badge.badge-pdf {
+  background-color: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+/* SQL */
+.file-type-badge.badge-sql {
+  background-color: rgba(251, 146, 60, 0.2);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  color: #fdba74;
+}
+
+/* Shell scripts */
+.file-type-badge.badge-sh,
+.file-type-badge.badge-bash {
+  background-color: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+/* Docker */
+.file-type-badge.badge-dockerfile {
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+}
+
+/* Config files */
+.file-type-badge.badge-env,
+.file-type-badge.badge-ini,
+.file-type-badge.badge-cfg {
+  background-color: rgba(107, 114, 128, 0.2);
+  border: 1px solid rgba(107, 114, 128, 0.35);
+  color: #9ca3af;
+}
+
+/* XML */
+.file-type-badge.badge-xml {
+  background-color: rgba(249, 115, 22, 0.15);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  color: #fdba74;
+}
+
+/* Rust */
+.file-type-badge.badge-rs {
+  background-color: rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  color: #fb923c;
+}
+
+/* Go */
+.file-type-badge.badge-go {
+  background-color: rgba(6, 182, 212, 0.2);
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  color: #22d3ee;
+}
+
+/* Fallback / unknown */
+.file-type-badge.badge-default {
+  background-color: rgba(75, 85, 99, 0.2);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  color: #9ca3af;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FILE UPLOAD — Remove Button (X) on Cards
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.file-card-remove {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  background-color: rgba(75, 85, 99, 0.3);
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  padding: 0;
+}
+
+.file-card:hover .file-card-remove {
+  opacity: 1;
+}
+
+.file-card-remove:hover {
+  background-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  transform: scale(1.15);
+}
+
+.file-card-remove:active {
+  transform: scale(0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    PWA & MOBILE SUPPORT
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -267,6 +643,22 @@ body {
     width: 100%;
   }
 
+  /* Responsive file card grid — single column on small screens */
+  .file-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Always show remove button on mobile (no hover) */
+  .file-card .file-card-remove {
+    opacity: 1;
+  }
+
+  /* Make drop zone more tap-friendly */
+  .file-drop-zone {
+    padding: 1.25rem 1rem;
+    min-height: 80px;
+  }
+
   /* Prevent iOS zoom on input focus (font-size must be >= 16px) */
   input[type="text"],
   input[type="email"],
@@ -299,6 +691,13 @@ body {
   .collapsible-panel.expanded {
     max-height: 2000px;
     opacity: 1;
+  }
+}
+
+/* Tablet breakpoint — 2 columns */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .file-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   }
 }
 

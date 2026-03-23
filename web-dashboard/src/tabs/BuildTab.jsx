@@ -7,6 +7,7 @@ import {
   getTemplates,
   triggerDownload,
 } from "../api.js";
+import FileUploadGrid from "../components/FileUploadGrid.jsx";
 
 const STAGES = [
   { key: "queued",      label: "Queued" },
@@ -160,19 +161,103 @@ function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
   );
 }
 
+// Binary file extensions that cannot be read as text
+const BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
+  "mp3", "mp4", "wav", "avi", "mov", "mkv", "flac",
+  "zip", "tar", "gz", "rar", "7z", "bz2",
+  "exe", "dll", "so", "dylib", "bin",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "sqlite", "db",
+]);
+
+function getFileExtension(filename) {
+  const parts = filename.split(".");
+  if (parts.length < 2) return "";
+  return parts[parts.length - 1].toLowerCase();
+}
+
+function isBinaryFile(filename) {
+  const ext = getFileExtension(filename);
+  return BINARY_EXTENSIONS.has(ext);
+}
+
+async function extractDocxText(file) {
+  try {
+    const mammoth = await import("mammoth");
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value || "";
+  } catch (err) {
+    console.error("Failed to extract .docx text:", err);
+    return `[Error extracting text from ${file.name}: ${err.message}]`;
+  }
+}
+
+async function extractPdfText(file) {
+  try {
+    const pdfjsLib = await import("pdfjs-dist");
+    // Set worker source — use CDN for pdfjs worker
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item) => item.str).join(" ");
+      pages.push(pageText);
+    }
+    return pages.join("\n\n");
+  } catch (err) {
+    console.error("Failed to extract .pdf text:", err);
+    return `[Error extracting text from ${file.name}: ${err.message}]`;
+  }
+}
+
+async function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => resolve(ev.target.result || "");
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    reader.readAsText(file);
+  });
+}
+
+async function extractFileContent(file) {
+  const ext = getFileExtension(file.name);
+
+  if (ext === "docx") {
+    return await extractDocxText(file);
+  }
+  if (ext === "pdf") {
+    return await extractPdfText(file);
+  }
+  if (isBinaryFile(file.name)) {
+    return `[Binary file: ${file.name} (${file.size} bytes)]`;
+  }
+  // All other files — try reading as text
+  try {
+    return await readFileAsText(file);
+  } catch {
+    return `[Could not read ${file.name}]`;
+  }
+}
+
 export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobile = false }) {
   const [title, setTitle] = useState("");
   const [blueprintText, setBlueprintText] = useState(initialBlueprint);
   const [repoName, setRepoName] = useState("");
   const [pushToGithub, setPushToGithub] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [currentRun, setCurrentRun] = useState(null);
   const [runStatus, setRunStatus] = useState(null);
   const [error, setError] = useState("");
-  const fileInputRef = useRef(null);
   const pollRef = useRef(null);
   const titleChanged = useRef(false);
 
@@ -204,15 +289,12 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
     }
   }
 
-  function handleFileSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadedFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setBlueprintText(ev.target.result || "");
-    };
-    reader.readAsText(file);
+  function handleFilesAdded(newFiles) {
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
+  }
+
+  function handleFileRemove(index) {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   const startPolling = useCallback((runId) => {
@@ -237,10 +319,30 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
     };
   }, []);
 
+  async function buildCombinedBlueprint() {
+    let combined = blueprintText.trim();
+
+    if (attachedFiles.length === 0) {
+      return combined;
+    }
+
+    const sections = [];
+    for (const file of attachedFiles) {
+      try {
+        const content = await extractFileContent(file);
+        sections.push(`\n\n=== ${file.name} ===\n${content}`);
+      } catch (err) {
+        sections.push(`\n\n=== ${file.name} ===\n[Error reading file: ${err.message}]`);
+      }
+    }
+
+    return combined + sections.join("");
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!title.trim() || !blueprintText.trim()) {
-      setError("Title and blueprint are required.");
+    if (!title.trim() || (!blueprintText.trim() && attachedFiles.length === 0)) {
+      setError("Title and blueprint (or at least one attached file) are required.");
       return;
     }
     setError("");
@@ -248,9 +350,10 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
     setCurrentRun(null);
     setRunStatus(null);
     try {
+      const combinedBlueprint = await buildCombinedBlueprint();
       const data = await submitBuild({
         title: title.trim(),
-        blueprint_text: blueprintText.trim(),
+        blueprint_text: combinedBlueprint,
         repo_name: repoName.trim() || toKebab(title),
         push_to_github: pushToGithub,
       });
@@ -359,43 +462,24 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
           <textarea
             value={blueprintText}
             onChange={(e) => setBlueprintText(e.target.value)}
-            placeholder="Paste your blueprint here or upload a .docx/.pdf file below..."
+            placeholder="Paste your blueprint here or attach files below..."
             rows={isMobile ? 10 : 14}
             className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-['IBM_Plex_Mono'] focus:border-purple-600 focus:outline-none transition-colors resize-y ${
               isMobile
                 ? "px-4 py-4 text-base min-h-[200px]"
                 : "px-4 py-3 text-sm"
             }`}
-            required
+            required={attachedFiles.length === 0}
           />
         </div>
 
-        {/* File upload */}
-        <div className={isMobile ? "flex flex-col gap-2" : ""}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".docx,.pdf,.txt,.md"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className={`bg-gray-800 border border-gray-700 hover:border-gray-600 text-gray-400 hover:text-gray-200 rounded-lg transition-colors ${
-              isMobile
-                ? "w-full min-h-[44px] px-4 py-3 text-base"
-                : "px-4 py-2 text-sm"
-            }`}
-          >
-            Upload .docx / .pdf
-          </button>
-          {uploadedFileName && (
-            <span className={`text-teal-400 font-mono ${isMobile ? "text-base" : "ml-3 text-sm"}`}>
-              {uploadedFileName}
-            </span>
-          )}
-        </div>
+        {/* Multi-file upload grid */}
+        <FileUploadGrid
+          files={attachedFiles}
+          onFilesAdded={handleFilesAdded}
+          onFileRemove={handleFileRemove}
+          isMobile={isMobile}
+        />
 
         {/* Push to GitHub toggle */}
         <label className={`flex items-center gap-3 cursor-pointer select-none ${
@@ -441,7 +525,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
               : "text-xl py-3"
           }`}
         >
-          {submitting ? "SUBMITTING..." : "BUILD"}
+          {submitting ? "PROCESSING FILES & SUBMITTING..." : "BUILD"}
         </button>
       </form>
 
