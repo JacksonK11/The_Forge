@@ -22,7 +22,7 @@ function StatusDot({ status }) {
   const isOnline = status === "online" || status === "healthy" || status === true;
   return (
     <span
-      className={`inline-block w-2 h-2 rounded-full ${
+      className={`inline-block w-3 h-3 rounded-full ${
         isOnline ? "bg-green-400" : "bg-red-400"
       }`}
     />
@@ -46,11 +46,44 @@ function StatusBadge({ status }) {
   );
 }
 
+function CollapsiblePanel({ title, defaultOpen = true, isMobile = false, children }) {
+  const [open, setOpen] = useState(isMobile ? defaultOpen : true);
+
+  return (
+    <div className="mb-4">
+      {isMobile ? (
+        <button
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center justify-between min-h-[44px] py-2 mb-2"
+        >
+          <h3 className="font-['Bebas_Neue'] text-2xl text-gray-300 tracking-wider">
+            {title}
+          </h3>
+          <svg
+            className={`w-5 h-5 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      ) : (
+        <h3 className="font-['Bebas_Neue'] text-2xl text-gray-300 tracking-wider mb-4">
+          {title}
+        </h3>
+      )}
+      {open && children}
+    </div>
+  );
+}
+
 const IN_PROGRESS_STATUSES = new Set([
   "queued", "validating", "parsing", "confirming", "architecting", "generating", "packaging", "pushing",
 ]);
 
-export default function OverviewTab() {
+export default function OverviewTab({ isMobile = false }) {
   const [runs, setRuns] = useState([]);
   const [agents, setAgents] = useState([]);
   const [apiStatus, setApiStatus] = useState("checking");
@@ -103,163 +136,219 @@ export default function OverviewTab() {
 
   const hasRecentActivity = runs.some((r) => {
     const d = new Date(r.updated_at || r.created_at || 0);
-    return Date.now() - d.getTime() < 60 * 60 * 1000; // last 1h
+    return Date.now() - d.getTime() < 60 * 60 * 1000;
   });
+
+  const kpiStats = [
+    {
+      label: "Total Builds",
+      value: totalBuilds,
+      sub: "all time",
+      color: "text-purple-400",
+      border: "border-purple-900",
+    },
+    {
+      label: "Completed",
+      value: completed,
+      sub: `${successRate}% success`,
+      color: "text-green-400",
+      border: "border-green-900",
+    },
+    {
+      label: "Failed",
+      value: failed,
+      sub: `${totalBuilds > 0 ? Math.round((failed / totalBuilds) * 100) : 0}% fail rate`,
+      color: "text-red-400",
+      border: "border-red-900",
+    },
+    {
+      label: "In Progress",
+      value: inProgress,
+      sub: "active builds",
+      color: "text-yellow-400",
+      border: "border-yellow-900",
+    },
+  ];
+
+  const secondaryStats = [
+    {
+      label: "Avg Files / Build",
+      value: avgFiles,
+      sub: "completed builds only",
+      color: "text-cyan-400",
+    },
+    {
+      label: "Registered Agents",
+      value: agents.length,
+      sub: "in The Office",
+      color: "text-teal-400",
+    },
+    {
+      label: "Success Rate",
+      value: `${successRate}%`,
+      sub: "completed / total",
+      color: successRate >= 80 ? "text-green-400" : successRate >= 50 ? "text-yellow-400" : "text-red-400",
+    },
+  ];
+
+  const systemStatuses = [
+    {
+      label: "API",
+      status: apiStatus === "online" ? "online" : "error",
+      detail: apiStatus === "online" ? "Responding" : apiStatus === "checking" ? "Checking..." : "Unreachable",
+    },
+    {
+      label: "Worker",
+      status: hasRecentActivity ? "online" : "online",
+      detail: hasRecentActivity ? "Active" : "Idle",
+    },
+    {
+      label: "Database",
+      status: runs.length > 0 || !loading ? "online" : "checking",
+      detail: runs.length > 0 ? "Connected" : "Unknown",
+    },
+  ];
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="font-['Bebas_Neue'] text-4xl text-gray-100 tracking-widest">
+        <h2 className={`font-['Bebas_Neue'] text-gray-100 tracking-widest ${isMobile ? "text-3xl" : "text-4xl"}`}>
           OVERVIEW
         </h2>
         <button
           onClick={() => { load(); checkHealth(); }}
-          className="text-xs text-gray-500 hover:text-gray-300 border border-gray-800 hover:border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+          className="text-xs text-gray-500 hover:text-gray-300 border border-gray-800 hover:border-gray-700 px-3 py-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
         >
           Refresh
         </button>
       </div>
 
       {/* KPI Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {[
-          {
-            label: "Total Builds",
-            value: totalBuilds,
-            sub: "all time",
-            color: "text-purple-400",
-            border: "border-purple-900",
-          },
-          {
-            label: "Completed",
-            value: completed,
-            sub: `${successRate}% success`,
-            color: "text-green-400",
-            border: "border-green-900",
-          },
-          {
-            label: "Failed",
-            value: failed,
-            sub: `${totalBuilds > 0 ? Math.round((failed / totalBuilds) * 100) : 0}% fail rate`,
-            color: "text-red-400",
-            border: "border-red-900",
-          },
-          {
-            label: "In Progress",
-            value: inProgress,
-            sub: "active builds",
-            color: "text-yellow-400",
-            border: "border-yellow-900",
-          },
-        ].map((s) => (
+      <div className={`grid gap-4 mb-6 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-4"}`}>
+        {kpiStats.map((s) => (
           <div
             key={s.label}
-            className={`bg-gray-900 border ${s.border} rounded-xl p-5`}
+            className={`bg-gray-900 border ${s.border} rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}
           >
-            <p className={`text-3xl font-bold font-mono ${s.color}`}>{s.value}</p>
-            <p className="text-gray-300 text-sm font-medium mt-1">{s.label}</p>
-            <p className="text-gray-600 text-xs mt-0.5">{s.sub}</p>
+            {isMobile ? (
+              <>
+                <div className="flex-shrink-0">
+                  <p className={`text-3xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                </div>
+                <div>
+                  <p className="text-gray-300 text-sm font-medium">{s.label}</p>
+                  <p className="text-gray-600 text-xs">{s.sub}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className={`text-3xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                <p className="text-gray-300 text-sm font-medium mt-1">{s.label}</p>
+                <p className="text-gray-600 text-xs mt-0.5">{s.sub}</p>
+              </>
+            )}
           </div>
         ))}
       </div>
 
       {/* Secondary metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className="text-2xl font-bold font-mono text-cyan-400">{avgFiles}</p>
-          <p className="text-gray-300 text-sm font-medium mt-1">Avg Files / Build</p>
-          <p className="text-gray-600 text-xs mt-0.5">completed builds only</p>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className="text-2xl font-bold font-mono text-teal-400">{agents.length}</p>
-          <p className="text-gray-300 text-sm font-medium mt-1">Registered Agents</p>
-          <p className="text-gray-600 text-xs mt-0.5">in The Office</p>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className={`text-2xl font-bold font-mono ${successRate >= 80 ? "text-green-400" : successRate >= 50 ? "text-yellow-400" : "text-red-400"}`}>
-            {successRate}%
-          </p>
-          <p className="text-gray-300 text-sm font-medium mt-1">Success Rate</p>
-          <p className="text-gray-600 text-xs mt-0.5">completed / total</p>
-        </div>
-      </div>
-
-      {/* System status */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
-        <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-4">
-          System Status
-        </h3>
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            {
-              label: "API",
-              status: apiStatus === "online" ? "online" : "error",
-              detail: apiStatus === "online" ? "Responding" : apiStatus === "checking" ? "Checking..." : "Unreachable",
-            },
-            {
-              label: "Worker",
-              status: hasRecentActivity ? "online" : "online",
-              detail: hasRecentActivity ? "Active" : "Idle",
-            },
-            {
-              label: "Database",
-              status: runs.length > 0 || !loading ? "online" : "checking",
-              detail: runs.length > 0 ? "Connected" : "Unknown",
-            },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-3">
-              <StatusDot status={s.status} />
-              <div>
-                <p className="text-gray-200 text-sm font-medium">{s.label}</p>
-                <p className="text-gray-500 text-xs">{s.detail}</p>
-              </div>
+      <CollapsiblePanel
+        title="METRICS"
+        defaultOpen={!isMobile}
+        isMobile={isMobile}
+      >
+        <div className={`grid gap-4 mb-6 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
+          {secondaryStats.map((s) => (
+            <div key={s.label} className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}>
+              {isMobile ? (
+                <>
+                  <div className="flex-shrink-0">
+                    <p className={`text-2xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-300 text-sm font-medium">{s.label}</p>
+                    <p className="text-gray-600 text-xs">{s.sub}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className={`text-2xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                  <p className="text-gray-300 text-sm font-medium mt-1">{s.label}</p>
+                  <p className="text-gray-600 text-xs mt-0.5">{s.sub}</p>
+                </>
+              )}
             </div>
           ))}
         </div>
-      </div>
+      </CollapsiblePanel>
+
+      {/* System status */}
+      <CollapsiblePanel
+        title="SYSTEM STATUS"
+        defaultOpen={true}
+        isMobile={isMobile}
+      >
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+          <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-3"}`}>
+            {systemStatuses.map((s) => (
+              <div key={s.label} className={`flex items-center gap-3 ${isMobile ? "min-h-[44px]" : ""}`}>
+                <StatusDot status={s.status} />
+                <div>
+                  <p className={`text-gray-200 font-medium ${isMobile ? "text-base" : "text-sm"}`}>{s.label}</p>
+                  <p className={`text-gray-500 ${isMobile ? "text-sm" : "text-xs"}`}>{s.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CollapsiblePanel>
 
       {/* Registered agents */}
       {agents.length > 0 && (
-        <div className="mb-6">
-          <h3 className="font-['Bebas_Neue'] text-2xl text-gray-300 tracking-wider mb-4">
-            REGISTERED AGENTS
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <CollapsiblePanel
+          title="REGISTERED AGENTS"
+          defaultOpen={!isMobile}
+          isMobile={isMobile}
+        >
+          <div className={`grid gap-3 mb-6 ${isMobile ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
             {agents.map((agent, i) => (
               <div
                 key={agent.id || i}
-                className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-start justify-between"
+                className={`bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-start justify-between ${isMobile ? "min-h-[56px]" : ""}`}
               >
-                <div>
-                  <p className="text-gray-200 font-medium text-sm">{agent.agent_name || agent.name}</p>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-gray-200 font-medium ${isMobile ? "text-base" : "text-sm"}`}>
+                    {agent.agent_name || agent.name}
+                  </p>
                   {agent.api_url && (
                     <a
                       href={agent.api_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-cyan-500 hover:text-cyan-400 text-xs font-mono mt-0.5 block transition-colors"
+                      className={`text-cyan-500 hover:text-cyan-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
                     >
                       {agent.api_url}
                     </a>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 flex-shrink-0 ${isMobile ? "min-h-[44px] pl-3" : ""}`}>
                   <StatusDot status={agent.health_status || "online"} />
-                  <span className="text-gray-500 text-xs capitalize">
+                  <span className={`text-gray-500 capitalize ${isMobile ? "text-sm" : "text-xs"}`}>
                     {agent.health_status || "unknown"}
                   </span>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </CollapsiblePanel>
       )}
 
       {/* Recent activity */}
-      <div>
-        <h3 className="font-['Bebas_Neue'] text-2xl text-gray-300 tracking-wider mb-4">
-          RECENT ACTIVITY
-        </h3>
+      <CollapsiblePanel
+        title="RECENT ACTIVITY"
+        defaultOpen={true}
+        isMobile={isMobile}
+      >
         {loading ? (
           <p className="text-gray-600 text-sm">Loading...</p>
         ) : recentRuns.length === 0 ? (
@@ -272,11 +361,13 @@ export default function OverviewTab() {
               {recentRuns.map((run, i) => (
                 <div key={run.id || i} className="relative">
                   <div className="absolute -left-9 top-1 w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600 mt-0.5" />
-                  <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-gray-200 text-sm font-medium">{run.title}</p>
-                        <p className="text-gray-500 text-xs font-mono mt-0.5">
+                  <div className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "px-3 py-3" : "px-4 py-3"}`}>
+                    <div className={`flex items-start justify-between gap-3 ${isMobile ? "flex-col gap-2" : ""}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-gray-200 font-medium ${isMobile ? "text-base" : "text-sm"}`}>
+                          {run.title}
+                        </p>
+                        <p className={`text-gray-500 font-mono mt-0.5 ${isMobile ? "text-sm" : "text-xs"}`}>
                           {formatDate(run.created_at)}
                           {run.duration_seconds
                             ? ` · ${formatDuration(run.duration_seconds)}`
@@ -286,7 +377,7 @@ export default function OverviewTab() {
                       <StatusBadge status={run.status} />
                     </div>
                     {run.file_count > 0 && (
-                      <p className="text-gray-600 text-xs mt-1.5">
+                      <p className={`text-gray-600 mt-1.5 ${isMobile ? "text-sm" : "text-xs"}`}>
                         {run.file_count} files
                         {run.status === "complete" ? " generated" : ""}
                       </p>
@@ -297,7 +388,7 @@ export default function OverviewTab() {
             </div>
           </div>
         )}
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 }

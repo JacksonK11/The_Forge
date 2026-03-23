@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" ry="96" fill="#6B21A8"/>
+  <!-- Anvil body - main trapezoid shape -->
+  <path d="M 120 340 L 160 260 L 352 260 L 392 340 Z" fill="white"/>
+  <!-- Anvil top flat surface -->
+  <rect x="140" y="240" width="232" height="24" rx="4" ry="4" fill="white"/>
+  <!-- Anvil horn (left pointed extension) -->
+  <path d="M 140 252 L 80 248 L 82 256 L 140 264 Z" fill="white"/>
+  <!-- Anvil base/feet -->
+  <rect x="140" y="340" width="232" height="28" rx="6" ry="6" fill="white"/>
+  <rect x="160" y="368" width="60" height="24" rx="4" ry="4" fill="white"/>
+  <rect x="292" y="368" width="60" height="24" rx="4" ry="4" fill="white"/>
+  <!-- Hammer handle -->
+  <rect x="244" y="100" width="24" height="120" rx="6" ry="6" fill="white" transform="rotate(-35, 256, 160)"/>
+  <!-- Hammer head -->
+  <rect x="218" y="80" width="76" height="40" rx="8" ry="8" fill="white" transform="rotate(-35, 256, 100)"/>
+  <!-- Spark effects -->
+  <circle cx="180" cy="220" r="6" fill="white" opacity="0.8"/>
+  <circle cx="210" cy="200" r="4" fill="white" opacity="0.6"/>
+  <circle cx="160" cy="200" r="5" fill="white" opacity="0.7"/>
+  <circle cx="195" cy="180" r="3" fill="white" opacity="0.5"/>
+</svg>

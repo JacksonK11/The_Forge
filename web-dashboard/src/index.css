@@ -2,11 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════
+   THE FORGE — Global Styles & PWA Support
+   ═══════════════════════════════════════════════════════════════════════ */
+
 body {
   background-color: #030712;
   color: #f3f4f6;
   font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
   width: 5px;
@@ -23,6 +31,8 @@ body {
   background: #4b5563;
 }
 
+/* ── Fonts ─────────────────────────────────────────────────────────────── */
+
 .font-mono-code {
   font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -31,7 +41,8 @@ body {
   font-family: 'Bebas Neue', sans-serif;
 }
 
-/* Animated dots for typing indicator */
+/* ── Animated dots for typing indicator ────────────────────────────────── */
+
 @keyframes bounce-dot {
   0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
   40% { transform: translateY(-6px); opacity: 1; }
@@ -43,13 +54,373 @@ body {
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
-/* Smooth transitions */
+/* ── Smooth transitions ────────────────────────────────────────────────── */
+
 .tab-transition {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Custom focus ring */
+/* ── Custom focus ring ─────────────────────────────────────────────────── */
+
 *:focus-visible {
   outline: 2px solid #7c3aed;
   outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PWA & MOBILE SUPPORT
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Safe Area Inset Utilities ─────────────────────────────────────────── */
+
+.safe-area-inset-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-inset-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-area-inset-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.safe-area-inset-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.safe-area-inset-y {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-all {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+/* Margin variants */
+.safe-margin-bottom {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-margin-top {
+  margin-top: env(safe-area-inset-top, 0px);
+}
+
+/* ── Minimum Touch Target (44px per Apple HIG / WCAG 2.5.5) ───────────── */
+
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.touch-target-block {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Touch Action for Swipe Areas ──────────────────────────────────────── */
+
+.swipe-area {
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: touch;
+}
+
+.swipe-horizontal {
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.swipe-vertical {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Smooth Scrolling for Mobile Panels ────────────────────────────────── */
+
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+}
+
+.mobile-scroll-x {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+  overflow-x: auto;
+}
+
+/* ── Mobile Bottom Navigation Bar ──────────────────────────────────────── */
+
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  background-color: #111827;
+  border-top: 1px solid #1f2937;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background-color: rgba(17, 24, 39, 0.92);
+}
+
+.mobile-bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 6px 2px 8px;
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+.mobile-bottom-nav-item:active {
+  background-color: rgba(107, 33, 168, 0.1);
+}
+
+.mobile-bottom-nav-item.active {
+  color: #c084fc;
+}
+
+.mobile-bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  background: linear-gradient(90deg, #7c3aed, #a855f7);
+  border-radius: 0 0 2px 2px;
+}
+
+.mobile-bottom-nav-item .nav-icon {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 2px;
+}
+
+.mobile-bottom-nav-item .nav-label {
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Mobile Content Area (accounts for bottom nav) ─────────────────────── */
+
+.mobile-content-area {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── Mobile Full Width Bubbles (Chat) ──────────────────────────────────── */
+
+@media (max-width: 767px) {
+  .chat-bubble-mobile {
+    max-width: 100% !important;
+    width: 100%;
+  }
+
+  .build-textarea-mobile {
+    width: 100%;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    min-height: 150px;
+  }
+
+  .file-grid-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .file-grid-mobile > * {
+    width: 100%;
+  }
+
+  /* Prevent iOS zoom on input focus (font-size must be >= 16px) */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  input[type="search"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Hide desktop scrollbar on mobile for cleaner look */
+  ::-webkit-scrollbar {
+    width: 0px;
+    height: 0px;
+  }
+
+  /* Collapsible panels — collapsed state */
+  .collapsible-panel {
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease;
+  }
+
+  .collapsible-panel.collapsed {
+    max-height: 0;
+    opacity: 0;
+  }
+
+  .collapsible-panel.expanded {
+    max-height: 2000px;
+    opacity: 1;
+  }
+}
+
+/* ── Desktop-only styles ───────────────────────────────────────────────── */
+
+@media (min-width: 768px) {
+  .mobile-bottom-nav {
+    display: none;
+  }
+
+  .mobile-content-area {
+    padding-bottom: 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PWA STANDALONE DISPLAY MODE
+   Adjustments when app is launched from home screen (no browser chrome)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@media (display-mode: standalone) {
+  /* Extra top padding for status bar area */
+  .standalone-top-padding {
+    padding-top: env(safe-area-inset-top, 20px);
+  }
+
+  /* The main app container should respect all safe areas */
+  .app-shell {
+    padding-top: env(safe-area-inset-top, 0px);
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+  }
+
+  /* Ensure the header accounts for notch/dynamic island */
+  header,
+  .app-header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Bottom nav gets extra safe area in standalone */
+  .mobile-bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+
+  /* Disable pull-to-refresh in standalone PWA */
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  /* Full height fix for iOS standalone */
+  html {
+    height: -webkit-fill-available;
+  }
+
+  body {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+  }
+
+  /* Hide any browser-specific UI hints */
+  .browser-only {
+    display: none !important;
+  }
+
+  /* Tighter header in standalone since we have status bar */
+  .standalone-header {
+    min-height: calc(56px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Also target iOS standalone mode specifically */
+@media (display-mode: standalone) and (max-width: 767px) {
+  /* On mobile standalone, ensure content doesn't go under status bar */
+  .app-shell {
+    padding-top: env(safe-area-inset-top, 44px);
+  }
+
+  /* Give more breathing room to the bottom nav */
+  .mobile-bottom-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  }
+}
+
+/* ── Fullscreen API fallback (Android) ─────────────────────────────────── */
+
+@media (display-mode: fullscreen) {
+  .app-shell {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* No-select for UI elements that shouldn't be selectable */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Hardware-accelerated transforms for smoother animations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Prevent content shift when scrollbar appears/disappears */
+.stable-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+/* Responsive text that prevents iOS zoom */
+.text-mobile-safe {
+  font-size: max(16px, 1rem);
 }

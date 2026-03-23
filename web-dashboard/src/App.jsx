@@ -8,6 +8,8 @@ import ChatTab from "./tabs/ChatTab.jsx";
 import OverviewTab from "./tabs/OverviewTab.jsx";
 import PipelineTab from "./tabs/PipelineTab.jsx";
 import ArchitectureTab from "./tabs/ArchitectureTab.jsx";
+import MobileLayout from "./components/MobileLayout.jsx";
+import { useIsMobile } from "./hooks/useIsMobile.js";
 
 const TABS = [
   {
@@ -102,6 +104,8 @@ export default function App() {
   const [resultsRunId, setResultsRunId] = useState(null);
   const [buildBlueprint, setBuildBlueprint] = useState("");
 
+  const isMobile = useIsMobile();
+
   const goToResults = useCallback((runId) => {
     setResultsRunId(runId || null);
     setActiveTab("results");
@@ -148,6 +152,18 @@ export default function App() {
       default:
         return null;
     }
+  }
+
+  if (isMobile) {
+    return (
+      <MobileLayout
+        tabs={TABS}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        renderTab={renderTab}
+        isFullHeight={isFullHeight}
+      />
+    );
   }
 
   return (

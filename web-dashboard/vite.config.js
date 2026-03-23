@@ -24,4 +24,8 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
   },
+  // The public directory defaults to "public" — files within it (manifest.json,
+  // sw.js, icons/) are copied as-is to the build output root. Explicitly set
+  // here to make the PWA asset pipeline clear.
+  publicDir: "public",
 });

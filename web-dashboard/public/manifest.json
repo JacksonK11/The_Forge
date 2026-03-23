@@ -1,0 +1,26 @@
+{
+  "name": "The Forge",
+  "short_name": "Forge",
+  "description": "AI Build Engine — Generate production-ready codebases from blueprints",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#6B21A8",
+  "background_color": "#08061A",
+  "categories": ["developer-tools"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -137,63 +137,82 @@ const INTELLIGENCE_FILES = [
   { file: "monitoring/performance_monitor.py", purpose: "Tracks 5 KPIs every 6 hours, detects 15%+ degradation, auto-diagnoses, alerts via Telegram." },
 ];
 
-export default function PipelineTab() {
+export default function PipelineTab({ isMobile = false }) {
   const [expandedStage, setExpandedStage] = useState(null);
-  const [showLayers, setShowLayers] = useState(true);
-  const [showIntelligence, setShowIntelligence] = useState(true);
+  const [showLayers, setShowLayers] = useState(!isMobile);
+  const [showIntelligence, setShowIntelligence] = useState(!isMobile);
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <h2 className="font-['Bebas_Neue'] text-4xl text-gray-100 tracking-widest mb-2">
+    <div className={isMobile ? "px-2 pb-24" : "max-w-3xl mx-auto"}>
+      <h2
+        className={`font-['Bebas_Neue'] text-gray-100 tracking-widest mb-2 ${
+          isMobile ? "text-3xl" : "text-4xl"
+        }`}
+      >
         PIPELINE
       </h2>
-      <p className="text-gray-500 text-sm mb-8">
-        Every build flows through these 9 stages in sequence. Click any stage for full detail.
+      <p className={`text-gray-500 mb-6 ${isMobile ? "text-sm" : "text-sm mb-8"}`}>
+        Every build flows through these 9 stages in sequence. Tap any stage for full detail.
       </p>
 
       {/* Pipeline stages */}
       <div className="relative">
         {PIPELINE_STAGES.map((stage, i) => (
-          <div key={i} className="flex gap-4 mb-1">
+          <div
+            key={i}
+            className={`flex gap-3 mb-1 ${isMobile ? "gap-3" : "gap-4"}`}
+          >
             {/* Connector column */}
             <div className="flex flex-col items-center w-10 flex-shrink-0">
-              <div
-                className={`w-10 h-10 rounded-xl border-2 ${stage.color} flex items-center justify-center text-lg flex-shrink-0 z-10 cursor-pointer`}
+              <button
+                className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl border-2 ${stage.color} flex items-center justify-center text-lg flex-shrink-0 z-10 cursor-pointer active:scale-95 transition-transform`}
                 onClick={() => setExpandedStage(expandedStage === i ? null : i)}
+                aria-label={`Toggle stage ${i + 1}: ${stage.label}`}
               >
                 {stage.icon}
-              </div>
+              </button>
               {i < PIPELINE_STAGES.length - 1 && (
                 <div className="flex-1 w-px bg-gray-800 my-1" style={{ minHeight: "20px" }} />
               )}
             </div>
 
             {/* Content */}
-            <div className="flex-1 mb-2">
+            <div className="flex-1 mb-2 min-w-0">
               <button
                 onClick={() => setExpandedStage(expandedStage === i ? null : i)}
-                className={`w-full text-left border rounded-xl px-4 py-3 transition-colors hover:bg-gray-800 ${
-                  expandedStage === i ? "bg-gray-800 " + stage.color : "border-gray-800 bg-gray-900"
+                className={`w-full text-left border rounded-xl transition-colors active:bg-gray-750 ${
+                  isMobile ? "px-3 py-3" : "px-4 py-3"
+                } ${
+                  expandedStage === i
+                    ? "bg-gray-800 " + stage.color
+                    : "border-gray-800 bg-gray-900 hover:bg-gray-800"
                 }`}
+                style={{ minHeight: "44px" }}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`text-xs px-2 py-0.5 rounded font-medium ${stage.badge}`}>
                         Stage {i + 1}
                       </span>
                     </div>
-                    <p className="text-gray-100 font-semibold text-sm">{stage.label}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{stage.description}</p>
+                    <p className={`text-gray-100 font-semibold ${isMobile ? "text-sm" : "text-sm"}`}>
+                      {stage.label}
+                    </p>
+                    <p className={`text-gray-400 mt-0.5 ${isMobile ? "text-xs leading-relaxed" : "text-xs"}`}>
+                      {stage.description}
+                    </p>
                   </div>
-                  <span className="text-gray-600 text-sm flex-shrink-0 mt-1">
+                  <span className="text-gray-600 text-sm flex-shrink-0 mt-1 min-w-[20px] text-center">
                     {expandedStage === i ? "▲" : "▼"}
                   </span>
                 </div>
 
                 {expandedStage === i && (
                   <div className="mt-3 pt-3 border-t border-gray-700">
-                    <p className="text-gray-300 text-sm leading-relaxed">{stage.detail}</p>
+                    <p className={`text-gray-300 leading-relaxed ${isMobile ? "text-sm" : "text-sm"}`}>
+                      {stage.detail}
+                    </p>
                   </div>
                 )}
               </button>
@@ -206,25 +225,28 @@ export default function PipelineTab() {
       <div className="mt-8 border border-gray-800 rounded-xl overflow-hidden">
         <button
           onClick={() => setShowLayers(!showLayers)}
-          className="w-full flex items-center justify-between px-5 py-4 bg-gray-900 hover:bg-gray-800 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-4 bg-gray-900 hover:bg-gray-800 active:bg-gray-750 transition-colors"
+          style={{ minHeight: "44px" }}
         >
-          <div>
-            <p className="font-['Bebas_Neue'] text-xl text-gray-100 tracking-wider text-left">
+          <div className="min-w-0 flex-1">
+            <p className={`font-['Bebas_Neue'] text-gray-100 tracking-wider text-left ${isMobile ? "text-lg" : "text-xl"}`}>
               CODE GENERATION LAYERS
             </p>
             <p className="text-gray-500 text-xs text-left mt-0.5">
               7 layers generated in dependency order — Stage 6 detail
             </p>
           </div>
-          <span className="text-gray-600">{showLayers ? "▲" : "▼"}</span>
+          <span className="text-gray-600 flex-shrink-0 ml-2 min-w-[20px] text-center">
+            {showLayers ? "▲" : "▼"}
+          </span>
         </button>
 
         {showLayers && (
           <div className="divide-y divide-gray-800">
             {LAYERS.map((layer) => (
-              <div key={layer.num} className="px-5 py-4">
-                <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center flex-shrink-0">
+              <div key={layer.num} className={isMobile ? "px-3 py-4" : "px-5 py-4"}>
+                <div className={`flex items-start ${isMobile ? "gap-3" : "gap-4"}`}>
+                  <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-gray-800 flex items-center justify-center flex-shrink-0">
                     <span className={`text-sm font-bold font-mono ${layer.color}`}>
                       {layer.num}
                     </span>
@@ -236,7 +258,9 @@ export default function PipelineTab() {
                       {layer.files.map((f) => (
                         <span
                           key={f}
-                          className="bg-gray-800 text-gray-400 px-2 py-0.5 rounded text-xs font-mono"
+                          className={`bg-gray-800 text-gray-400 rounded font-mono ${
+                            isMobile ? "px-2 py-1 text-xs" : "px-2 py-0.5 rounded text-xs"
+                          }`}
                         >
                           {f}
                         </span>
@@ -254,25 +278,35 @@ export default function PipelineTab() {
       <div className="mt-4 border border-teal-900 rounded-xl overflow-hidden">
         <button
           onClick={() => setShowIntelligence(!showIntelligence)}
-          className="w-full flex items-center justify-between px-5 py-4 bg-teal-950/20 hover:bg-teal-950/30 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-4 bg-teal-950/20 hover:bg-teal-950/30 active:bg-teal-950/40 transition-colors"
+          style={{ minHeight: "44px" }}
         >
-          <div>
-            <p className="font-['Bebas_Neue'] text-xl text-teal-300 tracking-wider text-left">
+          <div className="min-w-0 flex-1">
+            <p className={`font-['Bebas_Neue'] text-teal-300 tracking-wider text-left ${isMobile ? "text-lg" : "text-xl"}`}>
               INTELLIGENCE LAYER
             </p>
             <p className="text-teal-600 text-xs text-left mt-0.5">
               7 files included in every build — agent self-improvement system
             </p>
           </div>
-          <span className="text-teal-600">{showIntelligence ? "▲" : "▼"}</span>
+          <span className="text-teal-600 flex-shrink-0 ml-2 min-w-[20px] text-center">
+            {showIntelligence ? "▲" : "▼"}
+          </span>
         </button>
 
         {showIntelligence && (
           <div className="divide-y divide-teal-900/40">
             {INTELLIGENCE_FILES.map((item, i) => (
-              <div key={i} className="px-5 py-3 bg-teal-950/10">
-                <p className="text-teal-300 text-xs font-mono font-medium">{item.file}</p>
-                <p className="text-gray-400 text-xs mt-1">{item.purpose}</p>
+              <div
+                key={i}
+                className={`bg-teal-950/10 ${isMobile ? "px-3 py-3" : "px-5 py-3"}`}
+              >
+                <p className={`text-teal-300 font-mono font-medium ${isMobile ? "text-xs break-all" : "text-xs"}`}>
+                  {item.file}
+                </p>
+                <p className={`text-gray-400 mt-1 ${isMobile ? "text-xs leading-relaxed" : "text-xs"}`}>
+                  {item.purpose}
+                </p>
               </div>
             ))}
           </div>

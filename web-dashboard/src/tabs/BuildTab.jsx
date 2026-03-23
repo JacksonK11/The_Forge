@@ -60,7 +60,7 @@ function StageIcon({ status, stageKey, currentStatus }) {
   );
 }
 
-function SpecPanel({ spec, runId, onApprove, onReject }) {
+function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
   const [approving, setApproving] = useState(false);
 
   async function handleApprove() {
@@ -75,7 +75,7 @@ function SpecPanel({ spec, runId, onApprove, onReject }) {
   }
 
   return (
-    <div className="mt-6 border border-purple-700 rounded-lg bg-purple-950/20 p-5">
+    <div className="mt-6 border border-purple-700 rounded-lg bg-purple-950/20 p-4 md:p-5">
       <h3 className="text-purple-300 font-semibold text-base mb-4 font-['Bebas_Neue'] tracking-wide text-xl">
         SPEC CONFIRMATION REQUIRED
       </h3>
@@ -83,7 +83,7 @@ function SpecPanel({ spec, runId, onApprove, onReject }) {
         Review the parsed specification below. Approve to start code generation or reject to resubmit.
       </p>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className={`grid gap-4 mb-4 ${isMobile ? "grid-cols-1" : "grid-cols-2"}`}>
         <div>
           <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Agent Name</p>
           <p className="text-gray-100 font-medium">{spec.agent_name || "—"}</p>
@@ -137,17 +137,21 @@ function SpecPanel({ spec, runId, onApprove, onReject }) {
         </div>
       )}
 
-      <div className="flex gap-3 mt-5">
+      <div className={`flex gap-3 mt-5 ${isMobile ? "flex-col" : ""}`}>
         <button
           onClick={handleApprove}
           disabled={approving}
-          className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+          className={`flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg transition-colors ${
+            isMobile ? "min-h-[44px] text-base" : ""
+          }`}
         >
           {approving ? "Approving..." : "APPROVE — START BUILD"}
         </button>
         <button
           onClick={onReject}
-          className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+          className={`px-5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors ${
+            isMobile ? "min-h-[44px] text-base" : ""
+          }`}
         >
           Reject
         </button>
@@ -156,7 +160,7 @@ function SpecPanel({ spec, runId, onApprove, onReject }) {
   );
 }
 
-export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
+export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobile = false }) {
   const [title, setTitle] = useState("");
   const [blueprintText, setBlueprintText] = useState(initialBlueprint);
   const [repoName, setRepoName] = useState("");
@@ -283,16 +287,23 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
   const isRunning = runStatus && !["complete", "failed"].includes(status);
   const specJson = runStatus?.spec_json || {};
 
+  // Common input classes with responsive sizing
+  const inputBase = `w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 focus:border-purple-600 focus:outline-none transition-colors ${
+    isMobile ? "px-4 py-3 text-base" : "px-4 py-2.5 text-sm"
+  }`;
+
   return (
-    <div className="max-w-3xl mx-auto">
-      <h2 className="font-['Bebas_Neue'] text-4xl text-gray-100 tracking-widest mb-6">
+    <div className={`mx-auto ${isMobile ? "max-w-full px-1" : "max-w-3xl"}`}>
+      <h2 className={`font-['Bebas_Neue'] text-gray-100 tracking-widest mb-6 ${
+        isMobile ? "text-3xl" : "text-4xl"
+      }`}>
         NEW BUILD
       </h2>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className={`space-y-${isMobile ? "6" : "5"}`}>
         {/* Title */}
         <div>
-          <label className="block text-gray-400 text-sm font-medium mb-1.5">
+          <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
             Build Title <span className="text-red-400">*</span>
           </label>
           <input
@@ -300,14 +311,14 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
             value={title}
             onChange={handleTitleChange}
             placeholder="e.g. BuildRight AI Agent — Sydney Construction Leads"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-100 placeholder-gray-600 focus:border-purple-600 focus:outline-none transition-colors"
+            className={inputBase}
             required
           />
         </div>
 
         {/* Repo name */}
         <div>
-          <label className="block text-gray-400 text-sm font-medium mb-1.5">
+          <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
             GitHub Repo Name
           </label>
           <input
@@ -315,20 +326,20 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
             value={repoName}
             onChange={handleRepoChange}
             placeholder="auto-generated from title"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-100 placeholder-gray-600 font-mono text-sm focus:border-purple-600 focus:outline-none transition-colors"
+            className={`${inputBase} font-mono`}
           />
         </div>
 
         {/* Template selector */}
         {templates.length > 0 && (
           <div>
-            <label className="block text-gray-400 text-sm font-medium mb-1.5">
+            <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
               Load Template
             </label>
             <select
               value={selectedTemplate}
               onChange={handleTemplateChange}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-100 focus:border-purple-600 focus:outline-none transition-colors"
+              className={inputBase}
             >
               <option value="">— Select a template —</option>
               {templates.map((t) => (
@@ -342,21 +353,25 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
 
         {/* Blueprint textarea */}
         <div>
-          <label className="block text-gray-400 text-sm font-medium mb-1.5">
+          <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
             Blueprint <span className="text-red-400">*</span>
           </label>
           <textarea
             value={blueprintText}
             onChange={(e) => setBlueprintText(e.target.value)}
             placeholder="Paste your blueprint here or upload a .docx/.pdf file below..."
-            rows={14}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-600 font-['IBM_Plex_Mono'] text-sm focus:border-purple-600 focus:outline-none transition-colors resize-y"
+            rows={isMobile ? 10 : 14}
+            className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-['IBM_Plex_Mono'] focus:border-purple-600 focus:outline-none transition-colors resize-y ${
+              isMobile
+                ? "px-4 py-4 text-base min-h-[200px]"
+                : "px-4 py-3 text-sm"
+            }`}
             required
           />
         </div>
 
         {/* File upload */}
-        <div>
+        <div className={isMobile ? "flex flex-col gap-2" : ""}>
           <input
             ref={fileInputRef}
             type="file"
@@ -367,19 +382,25 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 text-gray-400 hover:text-gray-200 rounded-lg text-sm transition-colors"
+            className={`bg-gray-800 border border-gray-700 hover:border-gray-600 text-gray-400 hover:text-gray-200 rounded-lg transition-colors ${
+              isMobile
+                ? "w-full min-h-[44px] px-4 py-3 text-base"
+                : "px-4 py-2 text-sm"
+            }`}
           >
             Upload .docx / .pdf
           </button>
           {uploadedFileName && (
-            <span className="ml-3 text-sm text-teal-400 font-mono">
+            <span className={`text-teal-400 font-mono ${isMobile ? "text-base" : "ml-3 text-sm"}`}>
               {uploadedFileName}
             </span>
           )}
         </div>
 
         {/* Push to GitHub toggle */}
-        <label className="flex items-center gap-3 cursor-pointer select-none">
+        <label className={`flex items-center gap-3 cursor-pointer select-none ${
+          isMobile ? "min-h-[44px] py-1" : ""
+        }`}>
           <div className="relative">
             <input
               type="checkbox"
@@ -398,11 +419,15 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
               }`}
             />
           </div>
-          <span className="text-gray-300 text-sm">Push to GitHub after build</span>
+          <span className={`text-gray-300 ${isMobile ? "text-base" : "text-sm"}`}>
+            Push to GitHub after build
+          </span>
         </label>
 
         {error && (
-          <p className="text-red-400 text-sm bg-red-950/30 border border-red-900 rounded-lg px-4 py-3">
+          <p className={`text-red-400 bg-red-950/30 border border-red-900 rounded-lg px-4 py-3 ${
+            isMobile ? "text-base" : "text-sm"
+          }`}>
             {error}
           </p>
         )}
@@ -410,7 +435,11 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
         <button
           type="submit"
           disabled={submitting || (isRunning && status !== "confirming")}
-          className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-['Bebas_Neue'] tracking-widest text-xl py-3 rounded-lg transition-colors"
+          className={`w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-['Bebas_Neue'] tracking-widest rounded-lg transition-colors ${
+            isMobile
+              ? "text-2xl py-4 min-h-[44px]"
+              : "text-xl py-3"
+          }`}
         >
           {submitting ? "SUBMITTING..." : "BUILD"}
         </button>
@@ -418,13 +447,17 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
 
       {/* ── Progress Tracker ── */}
       {runStatus && (
-        <div className="mt-8 border border-gray-800 rounded-lg bg-gray-900 p-5">
-          <div className="flex items-center justify-between mb-5">
+        <div className={`mt-8 border border-gray-800 rounded-lg bg-gray-900 ${
+          isMobile ? "p-4" : "p-5"
+        }`}>
+          <div className={`flex items-center justify-between mb-5 ${
+            isMobile ? "flex-col items-start gap-2" : ""
+          }`}>
             <h3 className="font-['Bebas_Neue'] text-xl text-gray-100 tracking-wider">
               BUILD PROGRESS
             </h3>
             <span className="text-xs text-gray-500 font-mono">
-              ID: {runId}
+              ID: {isMobile ? `${String(runId).slice(0, 12)}...` : runId}
             </span>
           </div>
 
@@ -441,7 +474,9 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
               return (
                 <div
                   key={stageKey}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-3 px-3 rounded-lg transition-colors ${
+                    isMobile ? "py-3" : "py-2"
+                  } ${
                     isActive
                       ? "bg-purple-950/40 border border-purple-800"
                       : isDone
@@ -457,7 +492,9 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
                     />
                   </div>
                   <span
-                    className={`text-sm font-medium ${
+                    className={`font-medium ${
+                      isMobile ? "text-base" : "text-sm"
+                    } ${
                       isActive
                         ? "text-purple-300"
                         : isDone
@@ -467,7 +504,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
                   >
                     {stageLabel}
                   </span>
-                  {isActive && runStatus?.stage_started_at && (
+                  {isActive && runStatus?.stage_started_at && !isMobile && (
                     <span className="ml-auto text-xs text-gray-600 font-mono">
                       {new Date(runStatus.stage_started_at).toLocaleTimeString()}
                     </span>
@@ -506,15 +543,18 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
               runId={runId}
               onApprove={() => startPolling(runId)}
               onReject={handleReject}
+              isMobile={isMobile}
             />
           )}
 
           {/* Failed */}
           {status === "failed" && (
             <div className="mt-4 bg-red-950/30 border border-red-900 rounded-lg px-4 py-3">
-              <p className="text-red-400 text-sm font-medium">Build Failed</p>
+              <p className={`text-red-400 font-medium ${isMobile ? "text-base" : "text-sm"}`}>
+                Build Failed
+              </p>
               {runStatus?.error_message && (
-                <p className="text-red-300 text-sm mt-1 font-mono">
+                <p className={`text-red-300 mt-1 font-mono ${isMobile ? "text-sm" : "text-sm"}`}>
                   {runStatus.error_message}
                 </p>
               )}
@@ -524,21 +564,29 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
           {/* Complete */}
           {status === "complete" && (
             <div className="mt-5 bg-green-950/20 border border-green-900 rounded-lg p-4">
-              <p className="text-green-400 font-semibold text-base mb-3">
+              <p className={`text-green-400 font-semibold mb-3 ${isMobile ? "text-lg" : "text-base"}`}>
                 Build Complete
               </p>
-              <div className="flex flex-wrap gap-3">
+              <div className={`flex gap-3 ${isMobile ? "flex-col" : "flex-wrap"}`}>
                 {runStatus?.package_ready && (
                   <button
                     onClick={handleDownloadZip}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg transition-colors font-medium"
+                    className={`bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors font-medium ${
+                      isMobile
+                        ? "w-full min-h-[44px] px-4 py-3 text-base"
+                        : "px-4 py-2 text-sm"
+                    }`}
                   >
                     Download ZIP
                   </button>
                 )}
                 <button
                   onClick={() => onGoToResults && onGoToResults(runId)}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg transition-colors"
+                  className={`bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors ${
+                    isMobile
+                      ? "w-full min-h-[44px] px-4 py-3 text-base"
+                      : "px-4 py-2 text-sm"
+                  }`}
                 >
                   View in Results
                 </button>
@@ -547,7 +595,11 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "" }) {
                     href={runStatus.github_repo_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-400 text-sm rounded-lg transition-colors"
+                    className={`bg-gray-800 hover:bg-gray-700 text-cyan-400 rounded-lg transition-colors text-center ${
+                      isMobile
+                        ? "w-full min-h-[44px] px-4 py-3 text-base flex items-center justify-center"
+                        : "px-4 py-2 text-sm"
+                    }`}
                   >
                     View on GitHub →
                   </a>

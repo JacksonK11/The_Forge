@@ -65,8 +65,9 @@ function TypingIndicator() {
   );
 }
 
-function MessageBubble({ msg }) {
+function MessageBubble({ msg, isMobile }) {
   const isUser = msg.role === "user";
+  const maxWidth = isMobile ? "max-w-[90%]" : "max-w-[75%]";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3`}>
       {!isUser && (
@@ -75,7 +76,7 @@ function MessageBubble({ msg }) {
         </div>
       )}
       <div
-        className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${
+        className={`${maxWidth} rounded-2xl px-4 py-2.5 text-sm ${
           isUser
             ? "bg-purple-700 text-white rounded-tr-sm"
             : "bg-gray-800 text-gray-200 rounded-tl-sm"
@@ -95,7 +96,7 @@ function MessageBubble({ msg }) {
   );
 }
 
-export default function ChatTab() {
+export default function ChatTab({ isMobile = false }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -194,29 +195,31 @@ export default function ChatTab() {
   }
 
   return (
-    <div className="flex flex-col h-full -m-6 min-h-0">
+    <div className={`flex flex-col h-full min-h-0 ${isMobile ? "" : "-m-6"}`}>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
+      <div className={`${isMobile ? "px-4 py-3" : "px-6 py-4"} border-b border-gray-800 flex items-center justify-between flex-shrink-0`}>
         <div>
-          <h2 className="font-['Bebas_Neue'] text-2xl text-gray-100 tracking-widest">
+          <h2 className={`font-['Bebas_Neue'] text-gray-100 tracking-widest ${isMobile ? "text-xl" : "text-2xl"}`}>
             FORGE ASSISTANT
           </h2>
-          <p className="text-gray-500 text-xs mt-0.5">
-            Specialist in The Forge pipeline and The Office agent portfolio
+          <p className={`text-gray-500 mt-0.5 ${isMobile ? "text-[10px]" : "text-xs"}`}>
+            {isMobile
+              ? "Ask about The Forge & agents"
+              : "Specialist in The Forge pipeline and The Office agent portfolio"}
           </p>
         </div>
         {messages.length > 0 && (
           <button
             onClick={clearChat}
-            className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            className="text-xs text-gray-600 hover:text-gray-400 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            Clear history
+            Clear
           </button>
         )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className={`flex-1 overflow-y-auto ${isMobile ? "px-3 py-3" : "px-6 py-4"}`}>
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <div className="w-16 h-16 rounded-2xl bg-purple-900/30 border border-purple-800 flex items-center justify-center">
@@ -224,18 +227,20 @@ export default function ChatTab() {
             </div>
             <div>
               <p className="text-gray-300 font-semibold text-lg mb-1">Forge Assistant</p>
-              <p className="text-gray-500 text-sm max-w-xs">
+              <p className={`text-gray-500 text-sm ${isMobile ? "max-w-[280px]" : "max-w-xs"}`}>
                 Ask me anything about The Forge, your builds, or the agent portfolio.
               </p>
             </div>
 
             {/* Quick-start buttons */}
-            <div className="grid grid-cols-2 gap-2 max-w-sm w-full">
+            <div className={`gap-2 w-full ${isMobile ? "grid grid-cols-1 max-w-xs" : "grid grid-cols-2 max-w-sm"}`}>
               {QUICK_STARTS.map((q) => (
                 <button
                   key={q}
                   onClick={() => sendMessage(q)}
-                  className="text-left px-3 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 rounded-xl text-gray-400 hover:text-gray-200 text-xs transition-colors leading-snug"
+                  className={`text-left bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 rounded-xl text-gray-400 hover:text-gray-200 text-xs transition-colors leading-snug ${
+                    isMobile ? "px-4 py-3 min-h-[44px]" : "px-3 py-2.5"
+                  }`}
                 >
                   {q}
                 </button>
@@ -245,7 +250,7 @@ export default function ChatTab() {
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} />
+          <MessageBubble key={msg.id} msg={msg} isMobile={isMobile} />
         ))}
 
         {loading && (
@@ -263,15 +268,23 @@ export default function ChatTab() {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 px-6 py-4 border-t border-gray-800">
+      <div
+        className={`flex-shrink-0 border-t border-gray-800 ${
+          isMobile
+            ? "px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+            : "px-6 py-4"
+        }`}
+      >
         {messages.length > 0 && (
-          <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+          <div className={`flex gap-2 mb-3 overflow-x-auto pb-1 ${isMobile ? "-mx-1 px-1" : ""}`}>
             {QUICK_STARTS.map((q) => (
               <button
                 key={q}
                 onClick={() => sendMessage(q)}
                 disabled={loading}
-                className="flex-shrink-0 text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 hover:text-gray-200 rounded-full transition-colors disabled:opacity-50"
+                className={`flex-shrink-0 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 hover:text-gray-200 rounded-full transition-colors disabled:opacity-50 ${
+                  isMobile ? "px-3 py-2 min-h-[36px]" : "px-3 py-1.5"
+                }`}
               >
                 {q}
               </button>
@@ -279,16 +292,22 @@ export default function ChatTab() {
           </div>
         )}
 
-        <div className="flex items-end gap-3">
+        <div className="flex items-end gap-2 sm:gap-3">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Forge Assistant... (Enter to send, Shift+Enter for newline)"
+            placeholder={
+              isMobile
+                ? "Message Forge Assistant..."
+                : "Message Forge Assistant... (Enter to send, Shift+Enter for newline)"
+            }
             rows={1}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3 text-gray-100 placeholder-gray-600 text-sm focus:border-purple-600 focus:outline-none transition-colors resize-none max-h-32 overflow-y-auto"
-            style={{ minHeight: "48px" }}
+            className={`flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 text-gray-100 placeholder-gray-600 focus:border-purple-600 focus:outline-none transition-colors resize-none max-h-32 overflow-y-auto ${
+              isMobile ? "py-3 text-base" : "py-3 text-sm"
+            }`}
+            style={{ minHeight: isMobile ? "44px" : "48px" }}
             onInput={(e) => {
               e.target.style.height = "auto";
               e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px";
@@ -297,7 +316,9 @@ export default function ChatTab() {
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="w-12 h-12 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl flex items-center justify-center transition-colors flex-shrink-0"
+            className={`bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl flex items-center justify-center transition-colors flex-shrink-0 ${
+              isMobile ? "w-[44px] h-[44px]" : "w-12 h-12"
+            }`}
           >
             <svg
               className="w-5 h-5 text-white"
