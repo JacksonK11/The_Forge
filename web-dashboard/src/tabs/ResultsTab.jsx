@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from "react";
-import { getRuns, getRunPackageBlob, registerAgent, triggerDownload } from "../api.js";
+import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload } from "../api.js";
 
 const LAYER_LABELS = {
   1: "Layer 1: Database Schema",
@@ -74,6 +74,8 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState(null);
+  const [runFiles, setRunFiles] = useState([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [registering, setRegistering] = useState(false);
   const [registerMsg, setRegisterMsg] = useState("");
@@ -82,19 +84,36 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
   const loadRuns = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getRuns();
-      const list = Array.isArray(data) ? data : [];
+      const list = await getRuns();
       setRuns(list);
       if (initialRunId) {
-        const found = list.find((r) => String(r.id || r.run_id) === String(initialRunId));
-        if (found) setSelectedRun(found);
+        const found = list.find((r) => String(r.run_id) === String(initialRunId));
+        if (found) loadRunDetail(found.run_id);
       }
     } catch {
       // non-fatal
     } finally {
       setLoading(false);
     }
-  }, [initialRunId]);
+  }, [initialRunId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadRunDetail(runId) {
+    setLoadingDetail(true);
+    setRunFiles([]);
+    setSelectedFile(null);
+    try {
+      const [detail, files] = await Promise.all([
+        getRun(runId),
+        getRunFiles(runId, true),
+      ]);
+      setSelectedRun(detail);
+      setRunFiles(Array.isArray(files) ? files : []);
+    } catch {
+      // non-fatal — selectedRun already set to summary
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
 
   useEffect(() => {
     loadRuns();
@@ -141,7 +160,9 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
 
   function handleSelectRun(run) {
     setSelectedRun(run);
+    setRunFiles([]);
     setSelectedFile(null);
+    loadRunDetail(run.run_id);
     if (isMobile) {
       setShowRunList(false);
     }
@@ -150,10 +171,11 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
   function handleBackToList() {
     setShowRunList(true);
     setSelectedRun(null);
+    setRunFiles([]);
     setSelectedFile(null);
   }
 
-  const files = selectedRun?.files || [];
+  const files = runFiles;
   const layerGroups = groupFilesByLayer(files);
   const completedFiles = files.filter((f) => f.status === "complete").length;
   const failedFiles = files.filter((f) => f.status === "failed").length;
@@ -288,10 +310,14 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
             </p>
           )}
 
+          {loadingDetail && (
+            <p className="text-gray-500 text-xs mb-4">Loading files...</p>
+          )}
+
           {/* Stats — 2x2 grid on mobile */}
           <div className="grid grid-cols-2 gap-2 mb-5">
             {[
-              { label: "Total Files", value: files.length, color: "text-gray-100" },
+              { label: "Total Files", value: loadingDetail ? "…" : files.length, color: "text-gray-100" },
               { label: "Complete", value: completedFiles, color: "text-green-400" },
               { label: "Failed", value: failedFiles, color: "text-red-400" },
               { label: "Est. Cost", value: `$${costEstimate}`, color: "text-yellow-400" },
@@ -349,14 +375,14 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                         {layerFiles.map((f, i) => (
                           <button
                             key={i}
-                            onClick={() => setSelectedFile(selectedFile?.path === f.path ? null : f)}
+                            onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
                             className={`w-full text-left px-4 py-3 hover:bg-gray-800 active:bg-gray-750 transition-colors flex items-center gap-3 min-h-[44px] ${
-                              selectedFile?.path === f.path ? "bg-gray-800" : ""
+                              selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
                             }`}
                           >
                             <FileStatusIcon status={f.status} />
                             <span className="text-gray-300 text-sm font-mono flex-1 truncate">
-                              {f.path || f.filename || f.name}
+                              {f.file_path || f.path || f.filename}
                             </span>
                             {f.size && (
                               <span className="text-gray-600 text-xs font-mono flex-shrink-0">
@@ -377,7 +403,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
             <div className="mb-5 border border-gray-700 rounded-lg overflow-hidden w-full">
               <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
                 <span className="text-gray-300 text-xs font-mono truncate flex-1 mr-2">
-                  {selectedFile.path || selectedFile.filename || selectedFile.name}
+                  {selectedFile.file_path || selectedFile.path || selectedFile.filename}
                 </span>
                 <button
                   onClick={() => setSelectedFile(null)}
@@ -393,13 +419,13 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
           )}
 
           {/* Security report */}
-          {files.some((f) => (f.path || f.filename || "").includes("SECURITY_REPORT")) && (
+          {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
             <div className="mb-5 border border-orange-900 rounded-lg overflow-hidden w-full">
               <div className="bg-orange-950/30 px-4 py-2.5">
                 <span className="text-orange-400 text-sm font-medium">Security Report</span>
               </div>
               <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-                {files.find((f) => (f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
+                {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
               </pre>
             </div>
           )}
@@ -437,10 +463,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               return (
                 <button
                   key={id}
-                  onClick={() => {
-                    setSelectedRun(run);
-                    setSelectedFile(null);
-                  }}
+                  onClick={() => handleSelectRun(run)}
                   className={`w-full text-left px-4 py-3 border-b border-gray-800 transition-colors hover:bg-gray-800 ${
                     isSelected ? "bg-purple-950/30 border-l-2 border-l-purple-600" : ""
                   }`}
@@ -591,14 +614,14 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                           {layerFiles.map((f, i) => (
                             <button
                               key={i}
-                              onClick={() => setSelectedFile(selectedFile?.path === f.path ? null : f)}
+                              onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
                               className={`w-full text-left px-4 py-2.5 hover:bg-gray-800 transition-colors flex items-center gap-3 ${
-                                selectedFile?.path === f.path ? "bg-gray-800" : ""
+                                selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
                               }`}
                             >
                               <FileStatusIcon status={f.status} />
                               <span className="text-gray-300 text-sm font-mono flex-1 truncate">
-                                {f.path || f.filename || f.name}
+                                {f.file_path || f.path || f.filename}
                               </span>
                               {f.size && (
                                 <span className="text-gray-600 text-xs font-mono flex-shrink-0">
@@ -619,7 +642,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               <div className="mb-6 border border-gray-700 rounded-lg overflow-hidden">
                 <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
                   <span className="text-gray-300 text-sm font-mono">
-                    {selectedFile.path || selectedFile.filename || selectedFile.name}
+                    {selectedFile.file_path || selectedFile.path || selectedFile.filename}
                   </span>
                   <button
                     onClick={() => setSelectedFile(null)}
@@ -635,13 +658,13 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
             )}
 
             {/* Security report */}
-            {files.some((f) => (f.path || f.filename || "").includes("SECURITY_REPORT")) && (
+            {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
               <div className="mb-6 border border-orange-900 rounded-lg overflow-hidden">
                 <div className="bg-orange-950/30 px-4 py-2.5">
                   <span className="text-orange-400 text-sm font-medium">Security Report</span>
                 </div>
                 <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-                  {files.find((f) => (f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
+                  {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
                 </pre>
               </div>
             )}

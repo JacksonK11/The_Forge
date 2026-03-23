@@ -97,7 +97,17 @@ export async function getRun(runId) {
 }
 
 export async function getRuns() {
-  return request("GET", "/forge/runs");
+  const data = await request("GET", "/forge/runs");
+  // API returns RunListResponse {runs: [...], total, page, page_size} — unwrap the array
+  return Array.isArray(data) ? data : (data?.runs || []);
+}
+
+export async function getRunFiles(runId, includeContent = false) {
+  return request("GET", `/forge/runs/${runId}/files?include_content=${includeContent}`);
+}
+
+export async function getForgeStats() {
+  return request("GET", "/forge/stats");
 }
 
 export async function approveRun(runId) {

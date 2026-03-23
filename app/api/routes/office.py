@@ -19,12 +19,12 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from memory.database import get_db
-from memory.models import AgentRegistry, ForgeRun, ForgeUpdate, RunStatus
+from memory.models import AgentRegistry, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
 
 router = APIRouter()
@@ -334,3 +334,31 @@ async def list_agents(
         logger.error(f"[office] Failed to commit health status updates: {commit_exc}")
 
     return list(results)
+
+
+@router.get("/stats")
+async def get_stats(session: AsyncSession = Depends(get_db)) -> dict:
+    """
+    Aggregate statistics for The Forge dashboard overview.
+    Returns total_builds, successful_builds, total_files_generated, total_agents_registered.
+    """
+    total_builds_result = await session.execute(select(func.count(ForgeRun.run_id)))
+    total_builds = total_builds_result.scalar_one()
+
+    successful_builds_result = await session.execute(
+        select(func.count(ForgeRun.run_id)).where(ForgeRun.status == "complete")
+    )
+    successful_builds = successful_builds_result.scalar_one()
+
+    total_files_result = await session.execute(select(func.count(ForgeFile.file_id)))
+    total_files = total_files_result.scalar_one()
+
+    total_agents_result = await session.execute(select(func.count(AgentRegistry.agent_id)))
+    total_agents = total_agents_result.scalar_one()
+
+    return {
+        "total_builds": total_builds,
+        "successful_builds": successful_builds,
+        "total_files_generated": total_files,
+        "total_agents_registered": total_agents,
+    }

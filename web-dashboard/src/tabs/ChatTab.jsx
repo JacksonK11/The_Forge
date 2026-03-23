@@ -140,6 +140,7 @@ export default function ChatTab({ isMobile = false }) {
 
         const response = await sendChatMessage(apiMessages, memoryNotes, filesContext);
         const assistantContent =
+          response?.reply ||
           response?.content ||
           response?.message ||
           response?.response ||

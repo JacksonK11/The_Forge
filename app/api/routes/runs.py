@@ -32,6 +32,11 @@ class RunSummary(BaseModel):
     file_count: int
     files_complete: int
     files_failed: int
+    repo_name: Optional[str]
+    github_repo_url: Optional[str]
+    blueprint_text: Optional[str]
+    duration_seconds: Optional[float]
+    package_ready: bool
     created_at: str
     updated_at: str
 
@@ -46,6 +51,12 @@ class RunDetail(BaseModel):
     file_count: int
     files_complete: int
     files_failed: int
+    repo_name: Optional[str]
+    github_repo_url: Optional[str]
+    blueprint_text: Optional[str]
+    push_to_github: bool
+    github_push_status: Optional[str]
+    duration_seconds: Optional[float]
     package_ready: bool
     created_at: str
     updated_at: str
@@ -103,6 +114,14 @@ async def list_runs(
                 file_count=r.file_count,
                 files_complete=r.files_complete,
                 files_failed=r.files_failed,
+                repo_name=r.repo_name,
+                github_repo_url=r.github_repo_url,
+                blueprint_text=r.blueprint_text,
+                duration_seconds=(
+                    (r.updated_at - r.created_at).total_seconds()
+                    if r.status in ("complete", "failed") else None
+                ),
+                package_ready=bool(r.package_data or r.package_path),
                 created_at=r.created_at.isoformat(),
                 updated_at=r.updated_at.isoformat(),
             )
@@ -137,7 +156,16 @@ async def get_run(
         file_count=run.file_count,
         files_complete=run.files_complete,
         files_failed=run.files_failed,
-        package_ready=run.package_path is not None,
+        repo_name=run.repo_name,
+        github_repo_url=run.github_repo_url,
+        blueprint_text=run.blueprint_text,
+        push_to_github=run.push_to_github,
+        github_push_status=run.github_push_status,
+        duration_seconds=(
+            (run.updated_at - run.created_at).total_seconds()
+            if run.status in ("complete", "failed") else None
+        ),
+        package_ready=bool(run.package_data or run.package_path),
         created_at=run.created_at.isoformat(),
         updated_at=run.updated_at.isoformat(),
     )
