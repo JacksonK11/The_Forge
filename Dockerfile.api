@@ -21,7 +21,7 @@ RUN apk add --no-cache \
 # This includes python-docx and pypdf for server-side document parsing
 # used by the /api/forge/submit-with-files endpoint
 COPY requirements.txt .
-RUN pip install --no-cache-free -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
 COPY . .
@@ -32,4 +32,4 @@ USER forge
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.api.main:public_app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

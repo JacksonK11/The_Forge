@@ -9,7 +9,7 @@ import OverviewTab from "./tabs/OverviewTab.jsx";
 import PipelineTab from "./tabs/PipelineTab.jsx";
 import ArchitectureTab from "./tabs/ArchitectureTab.jsx";
 import MobileLayout from "./components/MobileLayout.jsx";
-import { useIsMobile } from "./hooks/useIsMobile.js";
+import { useIsMobile } from "./hooks/useMediaQuery.js";
 
 const TABS = [
   {
