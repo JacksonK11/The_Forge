@@ -2,21 +2,27 @@
 app/api/routes/chat.py
 AI chat endpoint for the Forge command center dashboard.
 
-POST /forge/chat — proxies messages to Claude with a Forge-specialist system prompt.
+POST /forge/chat — proxies messages to GPT-4o with a Forge-specialist system prompt.
+Uses OpenAI so chat capacity is completely separate from the Anthropic quota used
+by the build pipeline (Claude Opus/Sonnet/Haiku for code generation).
 The frontend passes its localStorage memory notes and uploaded file metadata
 so the AI has full context of the user's workspace.
 """
 
 from typing import Optional
 
-import anthropic
 from fastapi import APIRouter
 from loguru import logger
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from config.settings import settings
 
 router = APIRouter()
+
+# GPT-4o: OpenAI's flagship model — 128k context, best reasoning, fast response.
+# Separate quota from Anthropic so chat never impacts build pipeline capacity.
+_CHAT_MODEL = "gpt-4o"
 
 FORGE_SYSTEM_PROMPT = """You are The Forge's AI assistant — a specialist in The Forge AI build engine \
 and the full The Office agent portfolio. You help Jackson Khoury (Sydney, Australia) build, deploy, \
@@ -28,7 +34,8 @@ THE FORGE ARCHITECTURE:
 - React + Vite + Tailwind dashboard at https://the-forge-dashboard.fly.dev
 - RQ (Redis Queue) workers for background builds — jobs run 15-25 minutes
 - PostgreSQL + pgvector for storage and semantic retrieval
-- Claude Sonnet 4.6 for code generation, Haiku for classification/validation
+- Claude Opus 4.6 for code generation, Claude Haiku 4.5 for classification/validation
+- OpenAI GPT-4o for this chat interface (separate quota from build pipeline)
 - OpenAI text-embedding-3-small for knowledge base embeddings
 - Tavily for web search in the knowledge engine
 - Telegram bot for notifications
@@ -59,6 +66,7 @@ THE OFFICE PORTFOLIO:
 
 API ENDPOINTS:
 - POST /forge/submit — submit blueprint {title, blueprint_text, repo_name, push_to_github}
+- POST /forge/submit-with-files — multipart: blueprint + attached files
 - POST /forge/update — update existing repo {github_repo_url, change_description}
 - GET /forge/runs — list all builds
 - GET /forge/runs/{id} — build detail with spec + manifest
@@ -89,8 +97,8 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-    memory_notes: Optional[str] = None   # user's saved memory notes
-    files_context: Optional[str] = None  # list of uploaded file names/descriptions
+    memory_notes: Optional[str] = None
+    files_context: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -101,12 +109,11 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     """
-    Proxy chat messages to Claude with Forge-specialist context.
-    Called by the dashboard Chat tab. Injects memory notes and file context
-    into the system prompt so the AI has full workspace awareness.
+    Proxy chat messages to GPT-4o with Forge-specialist context.
+    Uses OpenAI quota — completely isolated from the Anthropic build pipeline.
     """
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
 
         # Build dynamic system prompt with user context
         system_parts = [FORGE_SYSTEM_PROMPT]
@@ -120,31 +127,29 @@ async def chat(req: ChatRequest) -> ChatResponse:
             )
         system_prompt = "".join(system_parts)
 
-        # Convert messages to Anthropic format
-        anthropic_messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in req.messages
-            if msg.role in ("user", "assistant")
-        ]
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in req.messages:
+            if msg.role in ("user", "assistant"):
+                messages.append({"role": msg.role, "content": msg.content})
 
-        response = await client.messages.create(
-            model=settings.claude_model,
+        response = await client.chat.completions.create(
+            model=_CHAT_MODEL,
+            messages=messages,
             max_tokens=4096,
-            system=system_prompt,
-            messages=anthropic_messages,
+            temperature=0.7,
         )
 
-        reply = response.content[0].text if response.content else "No response."
+        reply = response.choices[0].message.content or "No response."
         logger.info(
-            f"Chat: model={settings.claude_model} "
-            f"input={response.usage.input_tokens} output={response.usage.output_tokens}"
+            f"Chat: model={_CHAT_MODEL} "
+            f"input={response.usage.prompt_tokens} output={response.usage.completion_tokens}"
         )
 
-        return ChatResponse(reply=reply, model=settings.claude_model)
+        return ChatResponse(reply=reply, model=_CHAT_MODEL)
 
     except Exception as exc:
         logger.error(f"Chat endpoint error: {exc}")
         return ChatResponse(
-            reply=f"I encountered an error: {exc}. Check that ANTHROPIC_API_KEY is set.",
-            model=settings.claude_model,
+            reply=f"Chat error: {exc}",
+            model=_CHAT_MODEL,
         )
