@@ -223,7 +223,7 @@ async def _evaluate_file(file_path: str, purpose: str, content: str) -> dict:
         prompt = EVALUATOR_USER.format(
             file_path=file_path,
             purpose=purpose,
-            content=content[:6000],  # Limit to avoid token overflow
+            content=content[:30000],
         )
         response = client.messages.create(
             model=settings.claude_fast_model,
