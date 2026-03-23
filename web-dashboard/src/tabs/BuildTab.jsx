@@ -163,8 +163,20 @@ function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
   );
 }
 
-// Binary file extensions that need server-side extraction
+// Extensions that need server-side extraction (binary document formats)
 const SERVER_EXTRACT_EXTENSIONS = new Set(["docx", "pdf"]);
+
+// Plain text extensions that can be read client-side
+const TEXT_EXTENSIONS = new Set([
+  "py", "txt", "toml", "json", "md", "yml", "yaml",
+  "js", "jsx", "ts", "tsx", "css", "html", "xml",
+  "sh", "bash", "zsh", "fish",
+  "cfg", "ini", "env", "conf",
+  "sql", "graphql", "gql",
+  "rs", "go", "java", "kt", "rb", "php", "c", "cpp", "h",
+  "csv", "tsv", "log",
+  "dockerfile", "makefile",
+]);
 
 // Binary file extensions that cannot be read as text at all
 const BINARY_EXTENSIONS = new Set([
@@ -187,9 +199,14 @@ function needsServerExtraction(filename) {
   return SERVER_EXTRACT_EXTENSIONS.has(ext);
 }
 
+function isPlainTextFile(filename) {
+  const ext = getFileExtension(filename);
+  return TEXT_EXTENSIONS.has(ext);
+}
+
 function isBinaryFile(filename) {
   const ext = getFileExtension(filename);
-  return BINARY_EXTENSIONS.has(ext) || SERVER_EXTRACT_EXTENSIONS.has(ext);
+  return BINARY_EXTENSIONS.has(ext);
 }
 
 async function readFileAsText(file) {
@@ -244,6 +261,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
   const [currentRun, setCurrentRun] = useState(null);
   const [runStatus, setRunStatus] = useState(null);
   const [error, setError] = useState("");
+  const [uploadingFile, setUploadingFile] = useState(false);
   const pollRef = useRef(null);
   const titleChanged = useRef(false);
 
@@ -275,8 +293,52 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
     }
   }
 
-  function handleFilesAdded(newFiles) {
-    setAttachedFiles((prev) => [...prev, ...newFiles]);
+  async function handleFilesAdded(newFiles) {
+    const filesToProcess = Array.from(newFiles);
+    const serverFiles = [];
+    const clientFiles = [];
+
+    for (const file of filesToProcess) {
+      if (needsServerExtraction(file.name)) {
+        serverFiles.push(file);
+      } else {
+        clientFiles.push(file);
+      }
+    }
+
+    // Add client-readable files directly to the attached list
+    if (clientFiles.length > 0) {
+      setAttachedFiles((prev) => [...prev, ...clientFiles]);
+    }
+
+    // For .docx and .pdf files, send to server for text extraction
+    // and populate the blueprint textarea with the extracted text
+    if (serverFiles.length > 0) {
+      setUploadingFile(true);
+      try {
+        for (const file of serverFiles) {
+          const extractedText = await extractFileContentViaServer(file);
+
+          // If the extraction succeeded (not an error message), put it in the blueprint
+          if (!extractedText.startsWith("[Error") && !extractedText.startsWith("[Server returned no text")) {
+            setBlueprintText((prev) => {
+              if (prev.trim()) {
+                return prev.trim() + "\n\n" + `=== Content from ${file.name} ===\n` + extractedText;
+              }
+              return extractedText;
+            });
+          } else {
+            // Still add it as an attached file so user sees something
+            setAttachedFiles((prev) => [...prev, file]);
+            setError(`Could not extract text from ${file.name}. File added but may not contain readable content.`);
+          }
+        }
+      } catch (err) {
+        setError(`File upload failed: ${err.message}`);
+      } finally {
+        setUploadingFile(false);
+      }
+    }
   }
 
   function handleFileRemove(index) {
@@ -445,10 +507,16 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
           <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
             Blueprint <span className="text-red-400">*</span>
           </label>
+          {uploadingFile && (
+            <div className="mb-2 flex items-center gap-2 text-purple-400 text-sm">
+              <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              Extracting text from uploaded file...
+            </div>
+          )}
           <textarea
             value={blueprintText}
             onChange={(e) => setBlueprintText(e.target.value)}
-            placeholder="Paste your blueprint here or attach files below..."
+            placeholder="Paste your blueprint here, upload a .docx/.pdf file, or attach text files below..."
             rows={isMobile ? 10 : 14}
             className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-['IBM_Plex_Mono'] focus:border-purple-600 focus:outline-none transition-colors resize-y ${
               isMobile
@@ -457,6 +525,9 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
             }`}
             required={attachedFiles.length === 0}
           />
+          <p className="text-gray-600 text-xs mt-1">
+            Upload .docx or .pdf files — text will be extracted and shown here for editing.
+          </p>
         </div>
 
         {/* Multi-file upload grid */}
@@ -465,6 +536,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
           onFilesAdded={handleFilesAdded}
           onFileRemove={handleFileRemove}
           isMobile={isMobile}
+          acceptExtensions=".docx,.pdf,.py,.txt,.toml,.json,.md,.yml,.yaml,.js,.jsx,.ts,.tsx,.css,.html,.xml,.sh,.cfg,.ini,.env,.sql,.csv"
         />
 
         {/* Push to GitHub toggle */}
@@ -504,14 +576,18 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
 
         <button
           type="submit"
-          disabled={submitting || (isRunning && status !== "confirming")}
+          disabled={submitting || uploadingFile || (isRunning && status !== "confirming")}
           className={`w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-['Bebas_Neue'] tracking-widest rounded-lg transition-colors ${
             isMobile
               ? "text-2xl py-4 min-h-[44px]"
               : "text-xl py-3"
           }`}
         >
-          {submitting ? "PROCESSING FILES & SUBMITTING..." : "BUILD"}
+          {uploadingFile
+            ? "EXTRACTING FILE CONTENT..."
+            : submitting
+            ? "PROCESSING FILES & SUBMITTING..."
+            : "BUILD"}
         </button>
       </form>
 
@@ -677,8 +753,4 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
               </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
+        </div

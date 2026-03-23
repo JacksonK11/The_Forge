@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 
 const TEXT_EXTENSIONS = new Set([
@@ -52,7 +51,6 @@ function isTextFile(filename) {
   if (TEXT_EXTENSIONS.has(ext)) return true;
   if (BINARY_EXTENSIONS.has(ext)) return false;
   if (EXTRACTABLE_EXTENSIONS.has(ext)) return false;
-  // Default: treat unknown extensions as text (code files, configs, etc.)
   return true;
 }
 
@@ -137,7 +135,6 @@ function readFileContentClientSide(fileEntry) {
     const ext = getExtension(name);
 
     if (EXTRACTABLE_EXTENSIONS.has(ext)) {
-      // These files need server-side extraction — return marker
       resolve({
         name,
         content: null,
@@ -175,7 +172,6 @@ function readFileContentClientSide(fileEntry) {
       return;
     }
 
-    // Binary file — can't extract text client-side
     resolve({
       name,
       content: `[Binary file: ${name} — ${formatFileSize(file.size)}]`,
@@ -194,7 +190,7 @@ function readFileContentClientSide(fileEntry) {
  * @param {File} file - The raw File object to upload
  * @param {string} apiBase - The API base URL
  * @param {string} apiKey - The API secret key for authorization
- * @returns {Promise<string>} The extracted text content
+ * @returns {Promise<{text: string, filename: string}>} The extracted text content and filename
  */
 async function extractFileOnServer(file, apiBase, apiKey) {
   const formData = new FormData();
@@ -214,8 +210,10 @@ async function extractFileOnServer(file, apiBase, apiKey) {
   }
 
   const data = await response.json();
-  // The server returns { text: "..." } with the extracted content
-  return data.text || data.content || '';
+  return {
+    text: data.text || data.content || '',
+    filename: data.filename || file.name,
+  };
 }
 
 /**
@@ -250,7 +248,7 @@ export async function combineFileContents(fileEntries, options = {}) {
 
     if (clientResult.needsServerExtraction && apiBase && apiKey) {
       try {
-        const extractedText = await extractFileOnServer(clientResult.file, apiBase, apiKey);
+        const { text: extractedText } = await extractFileOnServer(clientResult.file, apiBase, apiKey);
         results.push({ name: entry.name, content: extractedText });
       } catch (err) {
         results.push({
@@ -299,7 +297,7 @@ export async function readAllFileContents(fileEntries, options = {}) {
 
     if (clientResult.needsServerExtraction && apiBase && apiKey) {
       try {
-        const extractedText = await extractFileOnServer(clientResult.file, apiBase, apiKey);
+        const { text: extractedText } = await extractFileOnServer(clientResult.file, apiBase, apiKey);
         results.push({ name: entry.name, content: extractedText });
       } catch (err) {
         results.push({
@@ -340,9 +338,95 @@ export function getTextFiles(fileEntries) {
   return fileEntries.filter((entry) => isTextFile(entry.name));
 }
 
-export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
+/**
+ * FileUploadGrid component with two-path upload flow:
+ * - Binary files (.docx, .pdf) are sent to the backend via POST /forge/submit-file for text extraction
+ * - Text files (.py, .txt, .toml, .json, .md, .yml, etc.) are read client-side with FileReader
+ *
+ * Props:
+ * - files: Array of file entry objects
+ * - setFiles: State setter for files array
+ * - onTextExtracted: Callback(text, filename) — called when text is extracted from any file,
+ *   so the parent (BuildTab) can display it in the Blueprint textarea
+ * - onServerExtract: Optional callback(file, id) => Promise<string> for custom server extraction
+ * - apiBase: API base URL for server-side extraction (used when onServerExtract is not provided)
+ * - apiKey: API secret key for authorization
+ */
+export default function FileUploadGrid({ files, setFiles, onTextExtracted, onServerExtract, apiBase, apiKey }) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [extracting, setExtracting] = useState({});
   const fileInputRef = useRef(null);
+
+  const handleServerExtraction = useCallback(async (file, entryId) => {
+    setExtracting((prev) => ({ ...prev, [entryId]: true }));
+
+    try {
+      let extractedText;
+
+      if (onServerExtract) {
+        extractedText = await onServerExtract(file, entryId);
+      } else if (apiBase && apiKey) {
+        const result = await extractFileOnServer(file, apiBase, apiKey);
+        extractedText = result.text;
+      } else {
+        throw new Error('No server extraction method available. Provide apiBase+apiKey or onServerExtract.');
+      }
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === entryId
+            ? { ...f, serverExtracted: true, extractedContent: extractedText, extractionError: null }
+            : f
+        )
+      );
+
+      if (onTextExtracted && extractedText) {
+        onTextExtracted(extractedText, file.name);
+      }
+
+      return extractedText;
+    } catch (err) {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === entryId
+            ? { ...f, serverExtracted: false, extractionError: err.message }
+            : f
+        )
+      );
+      return null;
+    } finally {
+      setExtracting((prev) => {
+        const next = { ...prev };
+        delete next[entryId];
+        return next;
+      });
+    }
+  }, [onServerExtract, apiBase, apiKey, setFiles, onTextExtracted]);
+
+  const handleClientTextRead = useCallback((file, entryId, fileName) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.split('\n').length;
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === entryId ? { ...f, lineCount: lines, textPreview: text.slice(0, 200), extractedContent: text } : f
+        )
+      );
+
+      if (onTextExtracted && text) {
+        onTextExtracted(text, fileName);
+      }
+    };
+    reader.onerror = () => {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === entryId ? { ...f, extractionError: `Failed to read ${fileName}` } : f
+        )
+      );
+    };
+    reader.readAsText(file, 'utf-8');
+  }, [setFiles, onTextExtracted]);
 
   const processFiles = useCallback((fileList) => {
     const newEntries = Array.from(fileList).map((file) => {
@@ -367,47 +451,19 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
         extractionError: null,
       };
 
-      // For text files, read line count and preview
       if (isTextFile(name) && !isExtractable(name)) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target.result;
-          const lines = text.split('\n').length;
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === id ? { ...f, lineCount: lines, textPreview: text.slice(0, 200) } : f
-            )
-          );
-        };
-        reader.readAsText(file, 'utf-8');
+        handleClientTextRead(file, id, name);
       }
 
-      // For extractable files, trigger server-side extraction if callback provided
-      if (isExtractable(name) && onServerExtract) {
-        onServerExtract(file, id).then((extractedText) => {
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === id
-                ? { ...f, serverExtracted: true, extractedContent: extractedText }
-                : f
-            )
-          );
-        }).catch((err) => {
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === id
-                ? { ...f, serverExtracted: false, extractionError: err.message }
-                : f
-            )
-          );
-        });
+      if (isExtractable(name)) {
+        handleServerExtraction(file, id);
       }
 
       return entry;
     });
 
     setFiles((prev) => [...prev, ...newEntries]);
-  }, [setFiles, onServerExtract]);
+  }, [setFiles, handleClientTextRead, handleServerExtraction]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -433,7 +489,6 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
   const handleFileInputChange = useCallback((e) => {
     if (e.target.files && e.target.files.length > 0) {
       processFiles(e.target.files);
-      // Reset input so same file can be re-selected
       e.target.value = '';
     }
   }, [processFiles]);
@@ -448,6 +503,12 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
     }
   }, []);
 
+  const handleRetryExtraction = useCallback((entry) => {
+    if (entry.file && entry.isExtractable) {
+      handleServerExtraction(entry.file, entry.id);
+    }
+  }, [handleServerExtraction]);
+
   return (
     <div style={{ width: '100%' }}>
       {/* Hidden file input — accept all file types */}
@@ -455,7 +516,7 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="*/*"
+        accept=".py,.txt,.toml,.json,.md,.yml,.yaml,.js,.jsx,.ts,.tsx,.html,.css,.scss,.sh,.bash,.docx,.pdf,.csv,.sql,.xml,.env,.ini,.cfg,.conf,.go,.rs,.java,.rb,.c,.cpp,.h,.hpp,.swift,.kt,.scala,.dart,.vue,.svelte,.prisma,.graphql,.proto,.tf,.sol,*/*"
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
@@ -482,7 +543,7 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
           Drop files here or click to select
         </div>
         <div style={{ fontSize: '12px', color: '#6b7280' }}>
-          Any file type • .py .js .toml .json .docx .pdf & more • Multiple files
+          .docx & .pdf extracted server-side • .py .js .toml .json .md .yml read client-side • Multiple files
         </div>
       </div>
 
@@ -491,76 +552,3 @@ export default function FileUploadGrid({ files, setFiles, onServerExtract }) {
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '12px',
-            paddingLeft: '4px',
-          }}
-        >
-          <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: 600 }}>
-            {files.length} file{files.length !== 1 ? 's' : ''} attached
-            {files.some((f) => f.isExtractable) && (
-              <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 400, marginLeft: '8px' }}>
-                ({files.filter((f) => f.isExtractable).length} need server extraction)
-              </span>
-            )}
-          </span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setFiles([]);
-            }}
-            style={{
-              fontSize: '11px',
-              color: '#ef4444',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '6px',
-              padding: '4px 10px',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = 'rgba(239, 68, 68, 0.2)';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(239, 68, 68, 0.1)';
-            }}
-          >
-            Clear all
-          </button>
-        </div>
-      )}
-
-      {/* File grid */}
-      {files.length > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: '10px',
-          }}
-        >
-          {files.map((entry) => {
-            const badgeColor = getBadgeColor(entry.ext);
-            const displayExt = entry.ext ? entry.ext.toUpperCase() : 'FILE';
-
-            return (
-              <div
-                key={entry.id}
-                style={{
-                  position: 'relative',
-                  backgroundColor: 'rgba(15, 11, 26, 0.8)',
-                  border: `1px solid ${
-                    entry.extractionError
-                      ? 'rgba(239, 68, 68, 0.4)'
-                      : entry.serverExtracted
-                      ? 'rgba(34, 197, 94, 0.3)'
-                      : 'rgba(107, 33, 168, 0.25)'
-                  }`,
-                  borderRadius: '10px',
-                  padding: '12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                  

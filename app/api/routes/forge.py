@@ -3,7 +3,7 @@ app/api/routes/forge.py
 Blueprint submission, build management, and update routes.
 
 POST /forge/submit                                — submit blueprint text, queue build
-POST /forge/submit-file                           — submit blueprint file (.docx/.pdf)
+POST /forge/submit-file                           — submit blueprint file (.docx/.pdf/.py/.txt etc)
 POST /forge/runs/{id}/approve                     — approve parsed spec, start code generation
 POST /forge/runs/{id}/regenerate/{file_path}      — regenerate single file
 GET  /forge/runs/{id}/package                     — download completed ZIP
@@ -19,7 +19,7 @@ from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -30,6 +30,15 @@ from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatu
 from pipeline.pipeline import run_pipeline_sync
 
 router = APIRouter()
+
+# Supported plain-text extensions that can be decoded as UTF-8 client-side or server-side
+_PLAIN_TEXT_EXTENSIONS = {".py", ".txt", ".toml", ".json", ".md", ".yml", ".yaml"}
+
+# Extensions requiring server-side binary parsing
+_BINARY_DOC_EXTENSIONS = {".docx", ".pdf"}
+
+# All supported extensions
+_ALL_SUPPORTED_EXTENSIONS = _PLAIN_TEXT_EXTENSIONS | _BINARY_DOC_EXTENSIONS
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
@@ -72,6 +81,11 @@ class UpdateResponse(BaseModel):
     update_id: str
     status: str
     message: str
+
+
+class FileExtractResponse(BaseModel):
+    text: str
+    filename: str
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -129,34 +143,62 @@ async def submit_blueprint(
     )
 
 
-@router.post("/submit-file", response_model=SubmitBlueprintResponse)
+@router.post("/submit-file")
 async def submit_blueprint_file(
-    title: str = Form(...),
     file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
     repo_name: Optional[str] = Form(None),
     push_to_github: bool = Form(True),
     session: AsyncSession = Depends(get_db),
-) -> SubmitBlueprintResponse:
+) -> JSONResponse:
     """
-    Submit a .docx or .pdf blueprint file for processing.
-    Extracts text from the file, creates ForgeRun, queues build.
-    """
-    from app.api.main import get_build_queue
+    Upload a file and extract its text content.
 
-    filename = file.filename or ""
+    For .docx files: uses python-docx to extract paragraph text.
+    For .pdf files: uses pypdf to extract page text.
+    For .py, .txt, .toml, .json, .md, .yml files: decodes as UTF-8.
+
+    Returns JSON: {"text": extracted_content, "filename": original_filename}
+
+    If a title is provided, also creates a ForgeRun and queues a build
+    (legacy behaviour for direct file-to-build submissions).
+    """
+    filename = file.filename or "unknown"
 
     try:
         file_bytes = await file.read()
-        blueprint_text = _extract_text_from_file(file_bytes, filename)
     except Exception as exc:
-        logger.error(f"Failed to parse uploaded file '{filename}': {exc}")
+        logger.error(f"Failed to read uploaded file '{filename}': {exc}")
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {exc}")
+
+    try:
+        extracted_text = _extract_text_from_file(file_bytes, filename)
+    except ValueError as exc:
+        logger.error(f"Failed to extract text from '{filename}': {exc}")
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Unexpected error extracting text from '{filename}': {exc}")
         raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
 
-    if len(blueprint_text.strip()) < 50:
+    logger.info(
+        f"File text extracted: filename='{filename}' "
+        f"chars={len(extracted_text)} bytes={len(file_bytes)}"
+    )
+
+    # If no title provided, just return the extracted text (frontend text-extraction mode)
+    if not title:
+        return JSONResponse(
+            content={"text": extracted_text, "filename": filename}
+        )
+
+    # Legacy mode: title provided → create a ForgeRun and queue build
+    if len(extracted_text.strip()) < 50:
         raise HTTPException(
             status_code=400,
             detail="Extracted blueprint text is too short. Check the file content.",
         )
+
+    from app.api.main import get_build_queue
 
     run_id = str(uuid.uuid4())
     resolved_repo_name = repo_name or _slug(title)
@@ -164,7 +206,7 @@ async def submit_blueprint_file(
     run = ForgeRun(
         run_id=run_id,
         title=title,
-        blueprint_text=blueprint_text,
+        blueprint_text=extracted_text,
         blueprint_file_path=filename,
         status=RunStatus.QUEUED.value,
         repo_name=resolved_repo_name,
@@ -173,22 +215,34 @@ async def submit_blueprint_file(
     session.add(run)
     await session.commit()
 
-    queue = get_build_queue()
-    queue.enqueue(
-        run_pipeline_sync,
-        run_id,
-        job_id=f"build-{run_id}",
-        job_timeout=3600,
-    )
+    try:
+        queue = get_build_queue()
+        queue.enqueue(
+            run_pipeline_sync,
+            run_id,
+            job_id=f"build-{run_id}",
+            job_timeout=3600,
+        )
+    except Exception as exc:
+        run.status = RunStatus.FAILED.value
+        run.error_message = f"Failed to queue build: {exc}"
+        await session.commit()
+        logger.error(f"Failed to queue file build {run_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue build: {exc}")
 
     logger.info(
         f"File build queued: run_id={run_id} file='{filename}' "
         f"repo={resolved_repo_name} push_to_github={push_to_github}"
     )
-    return SubmitBlueprintResponse(
-        run_id=run_id,
-        status=RunStatus.QUEUED.value,
-        message="Blueprint file accepted. Build queued.",
+
+    return JSONResponse(
+        content={
+            "text": extracted_text,
+            "filename": filename,
+            "run_id": run_id,
+            "status": RunStatus.QUEUED.value,
+            "message": "Blueprint file accepted. Build queued.",
+        }
     )
 
 
@@ -457,16 +511,42 @@ def _slug(title: str) -> str:
     return slug[:100] or "forge-build"
 
 
+def _get_file_extension(filename: str) -> str:
+    """Extract the lowercase file extension including the dot."""
+    dot_index = filename.rfind(".")
+    if dot_index == -1:
+        return ""
+    return filename[dot_index:].lower()
+
+
 def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     """
-    Extract plain text from .docx or .pdf file bytes.
+    Extract plain text from uploaded file bytes.
 
-    Uses python-docx for Word documents and pypdf for PDF files.
+    Supports:
+    - .docx: uses python-docx to extract paragraph text
+    - .pdf: uses pypdf to extract page text
+    - .py, .txt, .toml, .json, .md, .yml, .yaml: decoded as UTF-8
+
     Returns extracted text with paragraphs/pages joined by newlines.
+    Raises ValueError for unsupported file types or parsing failures.
     """
-    lower_filename = filename.lower()
+    ext = _get_file_extension(filename)
 
-    if lower_filename.endswith(".docx"):
+    if not ext:
+        raise ValueError(
+            f"File '{filename}' has no extension. "
+            f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
+        )
+
+    if ext not in _ALL_SUPPORTED_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported file type '{ext}' for file '{filename}'. "
+            f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
+        )
+
+    # ── .docx extraction via python-docx ─────────────────────────────────
+    if ext == ".docx":
         try:
             from docx import Document
 
@@ -477,11 +557,17 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
                 f"({len(doc.paragraphs)} paragraphs)"
             )
             return text
+        except ImportError:
+            logger.error("python-docx is not installed. Install with: pip install python-docx")
+            raise ValueError(
+                "Server cannot parse .docx files — python-docx library is not installed."
+            )
         except Exception as exc:
             logger.error(f"Failed to extract text from .docx '{filename}': {exc}")
             raise ValueError(f"Failed to parse .docx file: {exc}") from exc
 
-    if lower_filename.endswith(".pdf"):
+    # ── .pdf extraction via pypdf ────────────────────────────────────────
+    if ext == ".pdf":
         try:
             from pypdf import PdfReader
 
@@ -494,10 +580,40 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
                 f"({len(reader.pages)} pages)"
             )
             return text
+        except ImportError:
+            logger.error("pypdf is not installed. Install with: pip install pypdf")
+            raise ValueError(
+                "Server cannot parse .pdf files — pypdf library is not installed."
+            )
         except Exception as exc:
             logger.error(f"Failed to extract text from .pdf '{filename}': {exc}")
             raise ValueError(f"Failed to parse .pdf file: {exc}") from exc
 
+    # ── Plain text files decoded as UTF-8 ────────────────────────────────
+    if ext in _PLAIN_TEXT_EXTENSIONS:
+        try:
+            text = file_bytes.decode("utf-8")
+            logger.info(
+                f"Decoded {len(text)} chars from plain text file '{filename}' (UTF-8)"
+            )
+            return text
+        except UnicodeDecodeError as exc:
+            logger.error(f"UTF-8 decode failed for '{filename}': {exc}")
+            # Fall back to latin-1 which never fails
+            try:
+                text = file_bytes.decode("latin-1")
+                logger.warning(
+                    f"Fell back to latin-1 decoding for '{filename}' "
+                    f"({len(text)} chars)"
+                )
+                return text
+            except Exception as fallback_exc:
+                raise ValueError(
+                    f"Failed to decode text file '{filename}': {exc}"
+                ) from fallback_exc
+
+    # Should not reach here given the extension check above, but just in case
     raise ValueError(
-        f"Unsupported file type: {filename}. Use .docx or .pdf"
+        f"Unsupported file type '{ext}' for file '{filename}'. "
+        f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
     )
