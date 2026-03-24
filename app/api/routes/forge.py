@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.ratelimit import limiter
+from app.api.services.error_translator import translate_error_for_storage
 from memory.database import get_db
 from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
@@ -154,7 +155,7 @@ async def submit_blueprint(
         )
     except Exception as exc:
         run.status = RunStatus.FAILED.value
-        run.error_message = f"Failed to queue build: {exc}"
+        run.error_message = translate_error_for_storage(f"Failed to queue build: {exc}")
         await session.commit()
         logger.error(f"Failed to queue build {run_id}: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to queue build: {exc}")
@@ -308,7 +309,7 @@ async def submit_with_files(
         )
     except Exception as exc:
         run.status = RunStatus.FAILED.value
-        run.error_message = f"Failed to queue build: {exc}"
+        run.error_message = translate_error_for_storage(f"Failed to queue build: {exc}")
         await session.commit()
         logger.error(f"Failed to queue build with files {run_id}: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to queue build: {exc}")
@@ -402,7 +403,7 @@ async def submit_blueprint_file(
         )
     except Exception as exc:
         run.status = RunStatus.FAILED.value
-        run.error_message = f"Failed to queue build: {exc}"
+        run.error_message = translate_error_for_storage(f"Failed to queue build: {exc}")
         await session.commit()
         logger.error(f"Failed to queue file build {run_id}: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to queue build: {exc}")

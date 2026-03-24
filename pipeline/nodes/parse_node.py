@@ -830,6 +830,25 @@ def _recover_truncated_json(text: str, run_id: str = "") -> dict | None:
     except Exception as exc:
         logger.warning(f"[{run_id}] Truncation recovery attempt 3 failed: {exc}")
 
+    # Attempt 4: ask Sonnet to extract structured data from the malformed response
+    try:
+        response = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=4000,
+            system="You extract structured data from malformed JSON. Return ONLY valid JSON — no prose, no fences.",
+            messages=[{"role": "user", "content": (
+                "Extract all structured data from this malformed JSON response and return valid JSON. "
+                "Original text:\n\n" + text[:8000]
+            )}],
+        )
+        completed = _extract_json_from_response(response.content[0].text.strip())
+        result = json.loads(completed)
+        logger.info(f"[{run_id}] Truncation recovery: attempt 4 (Sonnet extraction) succeeded")
+        return result
+    except Exception as exc:
+        logger.warning(f"[{run_id}] Truncation recovery attempt 4 failed: {exc}")
+        raise
+
     return None
 
 

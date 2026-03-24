@@ -52,12 +52,20 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             file_path = file_entry["path"]
             state.current_file = file_path
 
-            content = await generate_file_for_layer(
-                run_id=state.run_id,
-                file_entry=file_entry,
-                spec=state.spec,
-                generated_files=state.generated_files,
-            )
+            try:
+                content = await generate_file_for_layer(
+                    run_id=state.run_id,
+                    file_entry=file_entry,
+                    spec=state.spec,
+                    generated_files=state.generated_files,
+                )
+            except Exception as exc:
+                logger.error(f"[{state.run_id}] EXCEPTION generating {file_path}: {exc}")
+                state.failed_files.append(file_path)
+                await _mark_file_failed(state.run_id, file_path)
+                processed += 1
+                await _update_run_progress(state.run_id, processed, len(state.failed_files))
+                continue
 
             if content is not None:
                 state.generated_files[file_path] = content
@@ -128,7 +136,12 @@ async def _mark_file_failed(run_id: str, file_path: str) -> None:
         )
 
 
-async def _update_run_progress(run_id: str, files_complete: int, files_failed: int) -> None:
+async def _update_run_progress(
+    run_id: str,
+    files_complete: int,
+    files_failed: int,
+    current_file_path: str = "",
+) -> None:
     """Update the run's progress counters in DB."""
     async with get_session() as session:
         from sqlalchemy import update

@@ -19,6 +19,7 @@ Model routing (Part E):
   All calls logged via config.model_config.router for cost tracking.
 """
 
+import asyncio
 import json
 import re
 
@@ -95,29 +96,45 @@ async def generate_file_for_layer(
                     f"\nPREVIOUS ATTEMPT FAILED EVALUATION. Fix these issues:\n{issues_text}\n"
                 )
 
-            prompt = build_codegen_prompt(
-                spec=spec,
-                file_path=file_path,
-                layer=layer,
-                purpose=purpose + extra_context,
-                previous_files=generated_files,
-                meta_rules=meta_rules,
-                knowledge_context=knowledge_context,
-            )
+            try:
+                prompt = build_codegen_prompt(
+                    spec=spec,
+                    file_path=file_path,
+                    layer=layer,
+                    purpose=purpose + extra_context,
+                    previous_files=generated_files,
+                    meta_rules=meta_rules,
+                    knowledge_context=knowledge_context,
+                )
 
-            content, was_truncated = await retry_async(
-                _generate_file_content,
-                prompt,
-                file_path=file_path,
-                run_id=run_id,
-                max_attempts=3,
-                base_delay=5.0,
-                max_delay=60.0,
-                label=f"generate:{file_path}",
-            )
+                content, was_truncated = await retry_async(
+                    _generate_file_content,
+                    prompt,
+                    file_path=file_path,
+                    run_id=run_id,
+                    max_attempts=3,
+                    base_delay=5.0,
+                    max_delay=60.0,
+                    label=f"generate:{file_path}",
+                )
+            except Exception as gen_exc:
+                logger.error(
+                    f"[{run_id}] Unhandled exception in _generate_file_content for "
+                    f"{file_path} attempt {attempt}: {gen_exc}"
+                )
+                return None
 
             if not content or len(content.strip()) < 10:
                 logger.warning(f"[{run_id}] Empty content for {file_path} attempt {attempt}")
+                continue
+
+            # ── Empty/minimal content detection ──────────────────────────────
+            if len(content.strip()) < 50:
+                logger.warning(f"[{run_id}] Empty/minimal content for {file_path}")
+                extra_context += (
+                    "\n\nPREVIOUS ATTEMPT GENERATED EMPTY/MINIMAL CONTENT. "
+                    "Generate the COMPLETE implementation.\n"
+                )
                 continue
 
             # ── Truncation detection ─────────────────────────────────────────
@@ -240,28 +257,47 @@ async def _generate_file_content(
     model = settings.claude_model
     logger.debug(f"[{run_id}] Calling {model} for {file_path or 'file generation'}")
 
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            system=CODEGEN_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except anthropic.BadRequestError as exc:
-        # Context too long — trim prompt to just spec + file entry (no previous files)
-        if "context_length_exceeded" in str(exc) or "too long" in str(exc).lower():
-            logger.warning(
-                f"[{run_id}] Context too long for {file_path} — retrying with trimmed prompt"
-            )
-            trimmed_prompt = _trim_prompt_to_fit(prompt)
+    _RATE_LIMIT_MAX_RETRIES = 3
+    _rate_limit_attempt = 0
+    while True:
+        try:
             response = client.messages.create(
                 model=model,
                 max_tokens=MAX_TOKENS,
                 system=CODEGEN_SYSTEM,
-                messages=[{"role": "user", "content": trimmed_prompt}],
+                messages=[{"role": "user", "content": prompt}],
             )
-        else:
-            raise
+            break  # Success — exit retry loop
+        except anthropic.RateLimitError as exc:
+            _rate_limit_attempt += 1
+            wait = getattr(exc, "retry_after", None) or 60
+            if _rate_limit_attempt > _RATE_LIMIT_MAX_RETRIES:
+                logger.error(
+                    f"[{run_id}] Rate limit exceeded after {_RATE_LIMIT_MAX_RETRIES} retries "
+                    f"for {file_path} — re-raising"
+                )
+                raise
+            logger.warning(
+                f"[{run_id}] Rate limited — waiting {wait}s before retry "
+                f"{_rate_limit_attempt}/{_RATE_LIMIT_MAX_RETRIES}"
+            )
+            await asyncio.sleep(wait)
+        except anthropic.BadRequestError as exc:
+            # Context too long — trim prompt to just spec + file entry (no previous files)
+            if "context_length_exceeded" in str(exc) or "too long" in str(exc).lower():
+                logger.warning(
+                    f"[{run_id}] Context too long for {file_path} — retrying with trimmed prompt"
+                )
+                trimmed_prompt = _trim_prompt_to_fit(prompt)
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=MAX_TOKENS,
+                    system=CODEGEN_SYSTEM,
+                    messages=[{"role": "user", "content": trimmed_prompt}],
+                )
+                break  # Success with trimmed prompt — exit retry loop
+            else:
+                raise
 
     # Record usage for cost tracking — persist to DB
     if hasattr(response, "usage"):
