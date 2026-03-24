@@ -97,6 +97,16 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
             logger.error(f"Run {run_id} not found in database")
             return
 
+        # Forward-only guard: never re-execute a run that already reached a
+        # terminal state. This prevents orphan-detector duplicate jobs from
+        # clobbering completed builds.
+        if run.status in (RunStatus.COMPLETE.value, RunStatus.FAILED.value):
+            logger.warning(
+                f"Run {run_id} is already in terminal state '{run.status}' "
+                f"— ignoring duplicate pipeline job (resume_from={resume_from})"
+            )
+            return
+
         state = PipelineState(
             run_id=run_id,
             title=run.title,

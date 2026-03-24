@@ -177,11 +177,26 @@ async def _detect_and_requeue_orphans(
 
         # If file count hasn't changed since last check AND it's been 30+ min — orphaned
         if current_count == prev_count:
-            # Check if this job is already queued (don't double-queue)
             job_id = f"build-{run_id}-resume"
-            existing_job_ids = [j.id for j in queue.jobs]
-            if job_id in existing_job_ids:
-                logger.debug(f"[{run_id}] Already queued for resume — skipping")
+
+            # Check if ANY job for this run is already queued or currently executing.
+            # queue.jobs only covers the waiting queue — we must also check what
+            # workers are actively running so we don't duplicate a live job.
+            from rq.worker import Worker as RQWorker
+            running_job_ids: set[str] = set()
+            try:
+                for w in RQWorker.all(connection=redis_conn):
+                    cj = w.get_current_job_id()
+                    if cj:
+                        running_job_ids.add(cj)
+            except Exception:
+                pass
+
+            existing_job_ids = {j.id for j in queue.jobs} | running_job_ids
+            # Any job whose id starts with "build-{run_id}" means this run is active
+            run_prefix = f"build-{run_id}"
+            if any(jid.startswith(run_prefix) for jid in existing_job_ids):
+                logger.debug(f"[{run_id}] Job already queued or running — skipping orphan re-queue")
                 continue
 
             resume_from = "generating" if run.manifest_json else "resume_from_architecture"
