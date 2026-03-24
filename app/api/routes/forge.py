@@ -195,12 +195,19 @@ async def submit_with_files(
     """
     from app.api.main import get_build_queue
 
-    # Extract text from each attached file.
-    # Never fail the whole build because one file can't be parsed — skip and log.
-    file_sections: list[str] = []
+    # Extract text from each attached file with smart capping.
+    # Priority: code files (.py, .toml, .yml, .js, .ts) > plain text > .docx
+    # Cap: 80 lines or 8000 chars per file, 25000 chars total across all files.
+    _CODE_EXTS = {".py", ".toml", ".yml", ".yaml", ".js", ".ts", ".jsx", ".tsx",
+                  ".go", ".rs", ".sh", ".sql", ".json", ".env", ".cfg", ".ini"}
+    _DOC_EXTS = {".docx", ".pdf"}
+
+    raw_extractions: list[tuple[str, str, int]] = []  # (filename, text, priority)
     skipped_files: list[str] = []
+
     for upload_file in files:
         filename = upload_file.filename or "unknown"
+        ext = _get_file_extension(filename)
         try:
             file_bytes = await upload_file.read()
         except Exception as exc:
@@ -209,24 +216,54 @@ async def submit_with_files(
             continue
 
         try:
-            extracted_text = _extract_text_from_file(file_bytes, filename)
+            raw_text = _extract_text_from_file(file_bytes, filename)
         except Exception as exc:
-            logger.warning(
-                f"Could not extract text from '{filename}' — skipping file, continuing build: {exc}"
-            )
+            logger.warning(f"Could not extract '{filename}' — skipping: {exc}")
             skipped_files.append(filename)
             continue
 
+        # For DOCX: extract only headings and first 2 sentences per section
+        if ext == ".docx":
+            raw_text = _extract_docx_outline(raw_text)
+
+        # Cap per-file: 80 lines or 8000 chars (whichever is smaller)
+        lines = raw_text.splitlines()
+        if len(lines) > 80:
+            raw_text = "\n".join(lines[:80]) + f"\n[... {len(lines)-80} more lines truncated]"
+        if len(raw_text) > 8000:
+            raw_text = raw_text[:8000] + f"\n[... truncated at 8000 chars]"
+
+        priority = 0 if ext in _CODE_EXTS else (2 if ext in _DOC_EXTS else 1)
+        raw_extractions.append((filename, raw_text, priority))
         logger.info(
-            f"Extracted {len(extracted_text)} chars from attached file '{filename}' "
-            f"({len(file_bytes)} bytes)"
+            f"Extracted {len(raw_text)} chars from '{filename}' "
+            f"(ext={ext}, priority={priority}, raw_bytes={len(file_bytes)})"
         )
-        file_sections.append(f"=== ATTACHED FILE: {filename} ===\n{extracted_text}")
+
+    # Sort by priority (code files first, docs last) and cap total at 25000 chars
+    raw_extractions.sort(key=lambda x: x[2])
+    file_sections: list[str] = []
+    total_file_chars = 0
+    TOTAL_FILE_CAP = 25_000
+
+    for filename, text, _ in raw_extractions:
+        remaining = TOTAL_FILE_CAP - total_file_chars
+        if remaining <= 0:
+            logger.warning(f"Total file cap reached — skipping '{filename}'")
+            skipped_files.append(filename)
+            continue
+        if len(text) > remaining:
+            text = text[:remaining] + "\n[... truncated to fit total cap]"
+        file_sections.append(f"=== ATTACHED FILE: {filename} ===\n{text}")
+        total_file_chars += len(text)
 
     if skipped_files:
-        logger.warning(
-            f"Skipped {len(skipped_files)} unreadable files: {skipped_files}"
-        )
+        logger.warning(f"Skipped {len(skipped_files)} files: {skipped_files}")
+
+    logger.info(
+        f"Attached files: {len(file_sections)} processed, "
+        f"{total_file_chars:,} chars total (cap={TOTAL_FILE_CAP:,})"
+    )
 
     # Combine blueprint text with extracted file contents
     if file_sections:
@@ -784,3 +821,52 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
         raise ValueError(
             f"Cannot decode file '{filename}' (ext='{ext or 'none'}') as text: {exc}"
         ) from exc
+
+
+def _extract_docx_outline(full_text: str) -> str:
+    """
+    Extract a compact outline from DOCX text: headings + first 2 sentences per section.
+    DOCX files are reference docs — the blueprint text already describes the content.
+    This dramatically reduces token usage while preserving structure.
+    """
+    import re as _re
+
+    lines = full_text.splitlines()
+    result: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+
+        # Detect headings: ALL CAPS, short lines, or lines ending with colon
+        is_heading = (
+            (len(line) < 80 and line == line.upper() and len(line) > 3)
+            or (len(line) < 60 and line.endswith(":"))
+            or _re.match(r'^\d+[\.\)]\s+\S', line)
+            or _re.match(r'^#{1,4}\s+\S', line)
+        )
+
+        if is_heading:
+            result.append(line)
+            # Include first 2 sentences of the following paragraph
+            i += 1
+            para_lines = []
+            while i < len(lines) and lines[i].strip():
+                para_lines.append(lines[i].strip())
+                i += 1
+            para = ' '.join(para_lines)
+            # Split by sentence boundaries and take first 2
+            sentences = _re.split(r'(?<=[.!?])\s+', para)
+            if sentences:
+                result.append(' '.join(sentences[:2]))
+        else:
+            i += 1
+
+    outline = '\n'.join(result)
+    if len(outline) < 100 and full_text:
+        # Outline extraction failed — return a hard cap of the raw text
+        return full_text[:3000]
+    return outline

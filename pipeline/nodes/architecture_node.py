@@ -74,28 +74,32 @@ async def architecture_node(state: PipelineState) -> PipelineState:
 
 async def _generate_manifest(spec: dict) -> dict:
     """Use Sonnet to generate the build manifest from spec."""
-    prompt = ARCHITECTURE_USER.format(spec_json=json.dumps(spec, indent=2)[:12000])
+    from pipeline.nodes.parse_node import _extract_json_from_response, _recover_truncated_json
+
+    # Allow up to 24K chars of spec JSON — large specs need full context
+    spec_json_str = json.dumps(spec, indent=2)
+    prompt = ARCHITECTURE_USER.format(spec_json=spec_json_str[:24000])
     try:
         response = client.messages.create(
             model=settings.claude_model,
-            max_tokens=16000,
+            max_tokens=64000,
             system=ARCHITECTURE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text.strip()
-        if "```" in text:
-            for block in text.split("```"):
-                block = block.strip()
-                if block.startswith("json"):
-                    block = block[4:].strip()
-                if block.startswith("{"):
-                    text = block
-                    break
-        if not text.startswith("{"):
-            start = text.find("{")
-            if start != -1:
-                text = text[start:]
-        return json.loads(text)
+        was_truncated = response.stop_reason == "max_tokens"
+        if was_truncated:
+            logger.warning("Architecture manifest hit max_tokens — attempting recovery")
+
+        text = _extract_json_from_response(response.content[0].text.strip())
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            recovered = _recover_truncated_json(text)
+            if recovered:
+                return recovered
+            raise
+
     except json.JSONDecodeError as exc:
         logger.error(f"Architecture manifest not valid JSON: {exc}")
         raise
