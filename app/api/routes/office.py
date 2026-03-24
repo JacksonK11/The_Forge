@@ -5,10 +5,12 @@ The Office integration endpoints for The Forge.
 These endpoints are called by Agent 5 (The Office) to trigger builds/updates
 programmatically and to register deployed agents in the central registry.
 
-POST /forge/webhook/build    — trigger a new agent build from a blueprint
-POST /forge/webhook/update   — trigger a targeted codebase update
-POST /forge/register-agent   — register a deployed agent in the registry
-GET  /forge/agents           — list all registered agents with live health status
+POST /forge/webhook/build              — trigger a new agent build from a blueprint
+POST /forge/webhook/update             — trigger a targeted codebase update
+POST /forge/register-agent             — register a deployed agent in the registry
+GET  /forge/agents                     — list all registered agents with live health status
+GET  /forge/agents/{agent_id}/health   — live health check for a specific agent
+POST /forge/agents/{agent_id}/restart  — restart an agent via Fly.io API
 """
 
 import uuid
@@ -334,6 +336,135 @@ async def list_agents(
         logger.error(f"[office] Failed to commit health status updates: {commit_exc}")
 
     return list(results)
+
+
+@router.get("/agents/{agent_id}/health")
+async def get_agent_health(
+    agent_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Return stored health data plus a live /health probe for the given agent.
+    Performs a real-time GET {api_url}/health (5s timeout) and returns both the
+    cached DB state and the live result.
+    """
+    result = await session.execute(
+        select(AgentRegistry).where(AgentRegistry.agent_id == agent_id)
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    live_status: str = "unknown"
+    live_status_code: Optional[int] = None
+
+    if agent.api_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{agent.api_url}/health")
+                live_status_code = resp.status_code
+                live_status = "healthy" if resp.status_code == 200 else "unhealthy"
+        except Exception as exc:
+            live_status = "unreachable"
+            logger.debug(
+                f"[office] Live health check failed for {agent.agent_name}: {exc}"
+            )
+
+    return {
+        "agent_id": agent.agent_id,
+        "agent_name": agent.agent_name,
+        "api_url": agent.api_url,
+        "dashboard_url": agent.dashboard_url,
+        "health_status": agent.health_status,
+        "last_health_check": agent.last_health_check.isoformat() if agent.last_health_check else None,
+        "live_status": live_status,
+        "live_status_code": live_status_code,
+    }
+
+
+@router.post("/agents/{agent_id}/restart")
+async def restart_agent(
+    agent_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Restart an agent's Fly.io machine(s).
+    Requires FLY_API_TOKEN to be configured. Iterates over fly_app_names stored
+    on the agent record and calls POST /v1/apps/{app}/machines/{machine}/restart
+    for each machine in each app. Returns {"restarted": true} on success.
+    """
+    if not settings.fly_api_token:
+        raise HTTPException(status_code=400, detail="Fly API token not configured")
+
+    result = await session.execute(
+        select(AgentRegistry).where(AgentRegistry.agent_id == agent_id)
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    fly_app_names: dict = agent.fly_app_names or {}
+    if not fly_app_names:
+        raise HTTPException(
+            status_code=400,
+            detail="No Fly app names registered for this agent",
+        )
+
+    headers = {
+        "Authorization": f"Bearer {settings.fly_api_token}",
+        "Content-Type": "application/json",
+    }
+    fly_api_base = "https://api.machines.dev"
+    restarted_machines: list[str] = []
+    errors: list[str] = []
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for _role, app_name in fly_app_names.items():
+            # List machines for this app
+            try:
+                machines_resp = await client.get(
+                    f"{fly_api_base}/v1/apps/{app_name}/machines",
+                    headers=headers,
+                )
+                machines_resp.raise_for_status()
+                machines = machines_resp.json()
+            except Exception as exc:
+                errors.append(f"{app_name}: failed to list machines — {exc}")
+                logger.error(f"[office] Fly list machines failed for {app_name}: {exc}")
+                continue
+
+            for machine in machines:
+                machine_id = machine.get("id")
+                if not machine_id:
+                    continue
+                try:
+                    restart_resp = await client.post(
+                        f"{fly_api_base}/v1/apps/{app_name}/machines/{machine_id}/restart",
+                        headers=headers,
+                    )
+                    restart_resp.raise_for_status()
+                    restarted_machines.append(f"{app_name}/{machine_id}")
+                    logger.info(
+                        f"[office] Restarted machine {machine_id} in app {app_name} "
+                        f"for agent {agent.agent_name}"
+                    )
+                except Exception as exc:
+                    errors.append(f"{app_name}/{machine_id}: {exc}")
+                    logger.error(
+                        f"[office] Fly restart failed for {app_name}/{machine_id}: {exc}"
+                    )
+
+    if errors and not restarted_machines:
+        raise HTTPException(
+            status_code=502,
+            detail=f"All restart attempts failed: {'; '.join(errors)}",
+        )
+
+    return {
+        "restarted": True,
+        "machines": restarted_machines,
+        "errors": errors,
+    }
 
 
 @router.get("/stats")

@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { submitUpdate, getUpdate, getUpdates } from "../api.js";
+import { submitUpdate, getUpdate, getUpdates, getAgents } from "../api.js";
 
 const UPDATE_STAGES = ["queued", "cloning", "analyzing", "generating", "committing", "complete", "failed"];
 
@@ -47,8 +47,19 @@ export default function UpdateTab({ isMobile = false }) {
   const [error, setError] = useState("");
   const pollRef = useRef(null);
 
+  // Agent selector
+  const [agents, setAgents] = useState([]);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+
+  // Advanced toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [filesToModify, setFilesToModify] = useState("");
+  const [filesToAdd, setFilesToAdd] = useState("");
+  const [filesToRemove, setFilesToRemove] = useState("");
+
   useEffect(() => {
     loadPastUpdates();
+    loadAgents();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -60,6 +71,25 @@ export default function UpdateTab({ isMobile = false }) {
       setPastUpdates(Array.isArray(data) ? data.slice(0, 10) : []);
     } catch {
       // non-fatal
+    }
+  }
+
+  async function loadAgents() {
+    try {
+      const data = await getAgents();
+      setAgents(Array.isArray(data) ? data : []);
+    } catch {
+      // non-fatal
+    }
+  }
+
+  function handleAgentSelect(agentId) {
+    setSelectedAgentId(agentId);
+    if (!agentId) return;
+    const agent = agents.find((a) => (a.agent_id || a.id) === agentId);
+    if (agent) {
+      const githubUrl = agent.github_url || agent.repo_url || "";
+      if (githubUrl) setRepoUrl(githubUrl);
     }
   }
 
@@ -91,11 +121,21 @@ export default function UpdateTab({ isMobile = false }) {
     setCurrentUpdate(null);
     setCurrentStatus(null);
     try {
-      const data = await submitUpdate({
+      const payload = {
         github_repo_url: repoUrl.trim(),
         change_description: changeDescription.trim(),
         title: updateTitle.trim() || undefined,
-      });
+      };
+      // Include advanced fields only if provided
+      if (showAdvanced) {
+        const modifyList = filesToModify.trim().split("\n").map((s) => s.trim()).filter(Boolean);
+        const addList = filesToAdd.trim().split("\n").map((s) => s.trim()).filter(Boolean);
+        const removeList = filesToRemove.trim().split("\n").map((s) => s.trim()).filter(Boolean);
+        if (modifyList.length) payload.files_to_modify = modifyList;
+        if (addList.length) payload.files_to_add = addList;
+        if (removeList.length) payload.files_to_remove = removeList;
+      }
+      const data = await submitUpdate(payload);
       setCurrentUpdate(data);
       setCurrentStatus(data);
       startPolling(data.id || data.update_id);
@@ -118,6 +158,29 @@ export default function UpdateTab({ isMobile = false }) {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Agent selector */}
+        {agents.length > 0 && (
+          <div>
+            <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
+              Agent <span className={`text-gray-600 ${isMobile ? "text-sm" : "text-xs"}`}>(optional — auto-fills repo URL)</span>
+            </label>
+            <select
+              value={selectedAgentId}
+              onChange={(e) => handleAgentSelect(e.target.value)}
+              className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:border-purple-600 focus:outline-none transition-colors ${
+                isMobile ? "px-4 py-3 text-base min-h-[44px]" : "px-4 py-2.5 text-sm"
+              }`}
+            >
+              <option value="">Select an agent…</option>
+              {agents.map((agent) => (
+                <option key={agent.agent_id || agent.id} value={agent.agent_id || agent.id}>
+                  {agent.agent_name || agent.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
           <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
             GitHub Repo URL <span className="text-red-400">*</span>
@@ -163,6 +226,75 @@ export default function UpdateTab({ isMobile = false }) {
             }`}
             required
           />
+        </div>
+
+        {/* Advanced toggle */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className={`flex items-center gap-2 text-gray-500 hover:text-gray-300 transition-colors ${isMobile ? "text-base min-h-[44px]" : "text-sm"}`}
+          >
+            <svg
+              className={`w-4 h-4 transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            Advanced Options
+          </button>
+          {showAdvanced && (
+            <div className="mt-4 space-y-4 border border-gray-800 rounded-lg p-4 bg-gray-900/50">
+              <div>
+                <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
+                  Specific Files to Modify
+                  <span className={`text-gray-600 ml-1 ${isMobile ? "text-sm" : "text-xs"}`}>(one path per line)</span>
+                </label>
+                <textarea
+                  value={filesToModify}
+                  onChange={(e) => setFilesToModify(e.target.value)}
+                  placeholder={"app/api/routes/users.py\napp/models/user.py"}
+                  rows={4}
+                  className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-mono focus:border-purple-600 focus:outline-none transition-colors resize-y ${
+                    isMobile ? "px-4 py-3 text-sm" : "px-4 py-2.5 text-sm"
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
+                  Files to Add
+                  <span className={`text-gray-600 ml-1 ${isMobile ? "text-sm" : "text-xs"}`}>(one path per line)</span>
+                </label>
+                <textarea
+                  value={filesToAdd}
+                  onChange={(e) => setFilesToAdd(e.target.value)}
+                  placeholder={"app/api/routes/reports.py\ntests/test_reports.py"}
+                  rows={3}
+                  className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-mono focus:border-purple-600 focus:outline-none transition-colors resize-y ${
+                    isMobile ? "px-4 py-3 text-sm" : "px-4 py-2.5 text-sm"
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`block text-gray-400 font-medium mb-1.5 ${isMobile ? "text-base" : "text-sm"}`}>
+                  Files to Remove
+                  <span className={`text-gray-600 ml-1 ${isMobile ? "text-sm" : "text-xs"}`}>(one path per line)</span>
+                </label>
+                <textarea
+                  value={filesToRemove}
+                  onChange={(e) => setFilesToRemove(e.target.value)}
+                  placeholder={"app/legacy/old_handler.py"}
+                  rows={3}
+                  className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 font-mono focus:border-purple-600 focus:outline-none transition-colors resize-y ${
+                    isMobile ? "px-4 py-3 text-sm" : "px-4 py-2.5 text-sm"
+                  }`}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (

@@ -188,6 +188,14 @@ export async function getAgents() {
   return request("GET", "/forge/agents");
 }
 
+export async function getAgentHealth(agentId) {
+  return request("GET", `/forge/agents/${agentId}/health`);
+}
+
+export async function restartAgent(agentId) {
+  return request("POST", `/forge/agents/${agentId}/restart`, {});
+}
+
 // ─── Deploy Status & Secrets ──────────────────────────────────────────────────
 
 export async function getDeployStatus(runId) {

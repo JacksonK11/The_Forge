@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getRuns, getAgents, getHealth, getForgeStats, getAnalytics } from "../api.js";
 
 function formatDate(iso) {
@@ -18,12 +18,29 @@ function formatDuration(seconds) {
   return `${m}m ${s}s`;
 }
 
+function formatTimeAgo(iso) {
+  if (!iso) return null;
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    if (diffSecs < 30) return "just now";
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    const diffMins = Math.floor(diffSecs / 60);
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours}h ago`;
+  } catch {
+    return null;
+  }
+}
+
 function StatusDot({ status }) {
   const isOnline = status === "online" || status === "healthy" || status === true;
+  const isUnknown = !status || status === "unknown";
   return (
     <span
       className={`inline-block w-3 h-3 rounded-full ${
-        isOnline ? "bg-green-400" : "bg-red-400"
+        isOnline ? "bg-green-400" : isUnknown ? "bg-gray-500" : "bg-red-400"
       }`}
     />
   );
@@ -91,6 +108,16 @@ export default function OverviewTab({ isMobile = false }) {
   const [forgeStats, setForgeStats] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const healthIntervalRef = useRef(null);
+
+  const loadAgents = useCallback(async () => {
+    try {
+      const data = await getAgents();
+      setAgents(Array.isArray(data) ? data : []);
+    } catch {
+      // non-fatal
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,7 +166,19 @@ export default function OverviewTab({ isMobile = false }) {
     load();
     checkHealth();
     loadAnalytics();
-  }, [load, checkHealth, loadAnalytics]);
+
+    // Auto-refresh agent health every 60 seconds while this tab is active
+    healthIntervalRef.current = setInterval(() => {
+      loadAgents();
+    }, 60000);
+
+    return () => {
+      if (healthIntervalRef.current) {
+        clearInterval(healthIntervalRef.current);
+        healthIntervalRef.current = null;
+      }
+    };
+  }, [load, checkHealth, loadAnalytics, loadAgents]);
 
   const totalBuilds = runs.length;
   const completed = runs.filter((r) => r.status === "complete").length;
@@ -349,44 +388,68 @@ export default function OverviewTab({ isMobile = false }) {
           isMobile={isMobile}
         >
           <div className={`grid gap-3 mb-6 ${isMobile ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
-            {agents.map((agent, i) => (
-              <div
-                key={agent.id || i}
-                className={`bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-start justify-between ${isMobile ? "min-h-[56px]" : ""}`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className={`text-gray-200 font-medium ${isMobile ? "text-base" : "text-sm"}`}>
-                    {agent.agent_name || agent.name}
-                  </p>
-                  {agent.api_url && (
-                    <a
-                      href={agent.api_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`text-cyan-500 hover:text-cyan-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
-                    >
-                      {agent.api_url}
-                    </a>
-                  )}
+            {agents.map((agent, i) => {
+              const checkedAgo = formatTimeAgo(agent.last_health_check);
+              return (
+                <div
+                  key={agent.agent_id || agent.id || i}
+                  className={`bg-gray-900 border border-gray-800 rounded-xl p-4 ${isMobile ? "" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-gray-200 font-medium ${isMobile ? "text-base" : "text-sm"}`}>
+                        {agent.agent_name || agent.name}
+                      </p>
+                      {agent.api_url && (
+                        <a
+                          href={agent.api_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`text-cyan-500 hover:text-cyan-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
+                        >
+                          {agent.api_url}
+                        </a>
+                      )}
+                      {agent.dashboard_url && (
+                        <a
+                          href={agent.dashboard_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`text-purple-500 hover:text-purple-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
+                        >
+                          {agent.dashboard_url}
+                        </a>
+                      )}
+                    </div>
+                    <div className={`flex flex-col items-end gap-1 flex-shrink-0 ${isMobile ? "pl-3" : ""}`}>
+                      <div className="flex items-center gap-2">
+                        <StatusDot status={agent.health_status} />
+                        <span className={`text-gray-400 capitalize font-medium ${isMobile ? "text-sm" : "text-xs"}`}>
+                          {agent.health_status || "unknown"}
+                        </span>
+                      </div>
+                      {checkedAgo && (
+                        <span className={`text-gray-600 ${isMobile ? "text-xs" : "text-xs"}`}>
+                          checked {checkedAgo}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   {agent.dashboard_url && (
-                    <a
-                      href={agent.dashboard_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`text-purple-500 hover:text-purple-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
-                    >
-                      {agent.dashboard_url}
-                    </a>
+                    <div className="mt-3">
+                      <a
+                        href={agent.dashboard_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-900/40 border border-purple-800 hover:border-purple-600 text-purple-300 hover:text-purple-200 rounded-lg transition-colors ${isMobile ? "text-sm min-h-[40px]" : "text-xs"}`}
+                      >
+                        Open Dashboard →
+                      </a>
+                    </div>
                   )}
                 </div>
-                <div className={`flex items-center gap-2 flex-shrink-0 ${isMobile ? "min-h-[44px] pl-3" : ""}`}>
-                  <StatusDot status={agent.health_status || "online"} />
-                  <span className={`text-gray-500 capitalize ${isMobile ? "text-sm" : "text-xs"}`}>
-                    {agent.health_status || "unknown"}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsiblePanel>
       )}

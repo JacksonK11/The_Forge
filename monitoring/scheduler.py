@@ -86,6 +86,16 @@ def start_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=3600,
     )
 
+    # ── Agent health polling: every 60 seconds ────────────────────────────────
+    scheduler.add_job(
+        poll_agent_health,
+        trigger=IntervalTrigger(seconds=60),
+        id="agent_health_poll",
+        name="Agent Health Poll",
+        replace_existing=True,
+        misfire_grace_time=30,
+    )
+
     scheduler.start()
     logger.info(
         f"Scheduler started with {len(scheduler.get_jobs())} jobs: "
@@ -220,6 +230,89 @@ async def _send_weekly_summary() -> None:
         await _send(text)
     except Exception as exc:
         logger.error(f"Weekly summary job failed: {exc}")
+
+
+async def poll_agent_health() -> None:
+    """
+    Poll /health for every registered agent with a non-null api_url.
+    Updates health_status and last_health_check in agents_registry.
+    Sends Telegram alerts on status transitions (healthy ↔ unhealthy).
+    All errors are non-fatal and logged.
+    """
+    logger.info("Scheduled job: poll_agent_health")
+    try:
+        from datetime import datetime, timezone
+
+        import httpx
+        from sqlalchemy import select, update as sa_update
+
+        from app.api.services.notify import _send
+        from memory.database import get_session
+        from memory.models import AgentRegistry
+
+        async with get_session() as session:
+            result = await session.execute(
+                select(AgentRegistry).where(AgentRegistry.api_url.isnot(None))
+            )
+            agents = result.scalars().all()
+
+        for agent in agents:
+            previous_status = agent.health_status
+            new_status: str
+
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{agent.api_url}/health")
+                    new_status = "healthy" if resp.status_code == 200 else "unhealthy"
+            except Exception as exc:
+                new_status = "unhealthy"
+                logger.debug(
+                    f"[health_poll] {agent.agent_name} ({agent.api_url}): {exc}"
+                )
+
+            now = datetime.now(timezone.utc)
+
+            try:
+                async with get_session() as session:
+                    await session.execute(
+                        sa_update(AgentRegistry)
+                        .where(AgentRegistry.agent_id == agent.agent_id)
+                        .values(health_status=new_status, last_health_check=now)
+                    )
+                    await session.commit()
+            except Exception as db_exc:
+                logger.error(
+                    f"[health_poll] Failed to persist health status for "
+                    f"{agent.agent_name}: {db_exc}"
+                )
+
+            # Alert on status transitions
+            if previous_status == "healthy" and new_status == "unhealthy":
+                try:
+                    await _send(
+                        f"🔴 <b>Agent Down</b>: <b>{agent.agent_name}</b> is unhealthy\n"
+                        f"URL: {agent.api_url}"
+                    )
+                except Exception as alert_exc:
+                    logger.error(
+                        f"[health_poll] Failed to send down alert for "
+                        f"{agent.agent_name}: {alert_exc}"
+                    )
+            elif previous_status == "unhealthy" and new_status == "healthy":
+                try:
+                    await _send(
+                        f"🟢 <b>Agent Recovered</b>: <b>{agent.agent_name}</b> is back up\n"
+                        f"URL: {agent.api_url}"
+                    )
+                except Exception as alert_exc:
+                    logger.error(
+                        f"[health_poll] Failed to send recovery alert for "
+                        f"{agent.agent_name}: {alert_exc}"
+                    )
+
+        logger.info(f"[health_poll] Checked {len(agents)} agent(s)")
+    except Exception as exc:
+        logger.error(f"Agent health poll job failed: {exc}")
 
 
 # ── Standalone entry point ────────────────────────────────────────────────────

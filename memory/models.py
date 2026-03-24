@@ -374,10 +374,12 @@ class AgentRegistry(Base):
     dashboard_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     health_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     repo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     health_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     last_health_check: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    fly_app_names: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
