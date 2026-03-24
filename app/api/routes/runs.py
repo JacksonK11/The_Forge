@@ -62,6 +62,7 @@ class RunDetail(BaseModel):
     github_push_status: Optional[str]
     duration_seconds: Optional[float]
     package_ready: bool
+    current_stage_detail: Optional[str]
     created_at: str
     updated_at: str
 
@@ -150,6 +151,10 @@ async def get_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    current_stage_detail: Optional[str] = None
+    if run.status == "generating" and run.file_count:
+        current_stage_detail = f"Generating files ({run.files_complete}/{run.file_count})"
+
     return RunDetail(
         run_id=run.run_id,
         title=run.title,
@@ -170,6 +175,7 @@ async def get_run(
             if run.status in ("complete", "failed") else None
         ),
         package_ready=bool(run.package_data or run.package_path),
+        current_stage_detail=current_stage_detail,
         created_at=run.created_at.isoformat(),
         updated_at=run.updated_at.isoformat(),
     )
@@ -408,6 +414,67 @@ async def get_run_versions(
         }
         for v in versions
     ]
+
+
+@router.post("/{run_id}/resume")
+async def resume_run(
+    run_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Manually resume a failed or completed run by re-queuing it.
+    Determines resume point from existing progress (manifest → generating, else architecture).
+    """
+    from app.api.main import get_build_queue
+    from pipeline.pipeline import run_pipeline_sync
+
+    result = await session.execute(
+        select(ForgeRun).where(ForgeRun.run_id == run_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.status not in ("failed", "complete"):
+        raise HTTPException(status_code=400, detail="Run is not in a resumable state")
+
+    resume_from = "generating" if run.manifest_json else "resume_from_architecture"
+
+    queue = get_build_queue()
+    queue.enqueue(
+        run_pipeline_sync,
+        run_id,
+        resume_from,
+        job_id=f"build-{run_id}-resume-manual",
+        job_timeout=7200,
+    )
+
+    run.status = "queued"
+    await session.commit()
+
+    logger.info(f"[{run_id}] Manual resume queued: resume_from={resume_from}")
+    return {"status": "queued", "resume_from": resume_from}
+
+
+@router.post("/{run_id}/force-fail")
+async def force_fail_run(
+    run_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Force a run into failed state. Useful for clearing stuck in-progress builds."""
+    result = await session.execute(
+        select(ForgeRun).where(ForgeRun.run_id == run_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    run.status = "failed"
+    run.error_message = "Manually marked as failed by user"
+    await session.commit()
+
+    logger.info(f"[{run_id}] Force-failed by user")
+    return {"status": "failed"}
 
 
 @router.get("/queue/status")

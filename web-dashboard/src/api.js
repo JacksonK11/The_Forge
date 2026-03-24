@@ -135,6 +135,14 @@ export async function registerAgent(payload) {
   return request("POST", "/forge/register-agent", payload);
 }
 
+export async function resumeRun(runId) {
+  return request("POST", `/forge/runs/${runId}/resume`);
+}
+
+export async function forceFailRun(runId) {
+  return request("POST", `/forge/runs/${runId}/force-fail`);
+}
+
 // ─── File Upload (Server-side text extraction) ────────────────────────────────
 
 export async function submitFile(file) {

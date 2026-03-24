@@ -50,15 +50,19 @@ async def notify_build_complete(
     duration_seconds: float,
     callback_url: Optional[str] = None,
     github_repo_url: Optional[str] = None,
+    estimated_cost_aud: Optional[float] = None,
 ) -> None:
     """Notify when a build completes successfully."""
+    files_complete = file_count - files_failed
     status_icon = "✅" if files_failed == 0 else "⚠️"
+    cost_aud = estimated_cost_aud if estimated_cost_aud is not None else files_complete * 0.002
     text = (
         f"{status_icon} <b>The Forge — Build Complete</b>\n\n"
         f"<b>{title}</b>\n"
         f"Run ID: <code>{run_id}</code>\n\n"
-        f"Files generated: <b>{file_count - files_failed}/{file_count}</b>\n"
+        f"Files generated: <b>{files_complete}/{file_count}</b>\n"
         f"Duration: <b>{duration_seconds:.0f}s</b>\n"
+        f"Estimated cost: <b>A${cost_aud:.3f}</b>\n"
     )
     if files_failed > 0:
         text += f"⚠️ {files_failed} file(s) failed — check run detail\n"
@@ -92,14 +96,29 @@ async def notify_build_failed(
     title: str,
     stage: str,
     error: str,
+    files_complete: int = 0,
+    file_count: int = 0,
+    estimated_cost_aud: Optional[float] = None,
 ) -> None:
     """Notify when a build pipeline fails."""
+    from app.api.services.error_translator import translate_error_for_storage, translate_error
+    translated = translate_error_for_storage(error)
+    translated_detail = translate_error(error)
+    suggested_fix = translated_detail.get("fix", "Check run logs for details.")
+    cost_aud = estimated_cost_aud if estimated_cost_aud is not None else files_complete * 0.002
     text = (
         f"❌ <b>The Forge — Build Failed</b>\n\n"
         f"<b>{title}</b>\n"
         f"Run ID: <code>{run_id}</code>\n"
         f"Failed at stage: <b>{stage}</b>\n\n"
-        f"Error:\n<code>{error[:400]}</code>\n\n"
+        f"Error:\n<code>{translated[:400]}</code>\n"
+    )
+    if files_complete or file_count:
+        text += f"Files generated before failure: <b>{files_complete}/{file_count}</b>\n"
+    if cost_aud:
+        text += f"Estimated cost: <b>A${cost_aud:.3f}</b>\n"
+    text += (
+        f"\n💡 Fix: {suggested_fix}\n\n"
         f"<a href='https://the-forge-dashboard.fly.dev/runs/{run_id}'>View Run →</a>"
     )
     await _send(text)
@@ -131,6 +150,12 @@ async def notify_performance_degradation(
         f"Degradation: <b>{degradation_pct:.1f}%</b>\n\n"
         f"Investigate at: the-forge-dashboard.fly.dev"
     )
+    await _send(text)
+
+
+async def notify_worker_restart() -> None:
+    """Notify that the worker has restarted and in-progress builds will auto-resume."""
+    text = "🔄 <b>The Forge Worker</b> — restarted. In-progress builds will auto-resume."
     await _send(text)
 
 

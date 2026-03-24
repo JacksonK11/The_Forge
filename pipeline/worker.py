@@ -507,6 +507,13 @@ def main() -> None:
     # Add Redis log sink so every log line is available via /system/logs/recent
     logger.add(_make_redis_log_sink(redis_conn), level="DEBUG")
 
+    # Send startup notification
+    try:
+        from app.api.services.notify import _send
+        asyncio.run(_send("<b>The Forge Worker</b> — started and ready"))
+    except Exception:
+        pass
+
     # Recover any builds that were interrupted by a previous deploy/restart
     asyncio.run(_recover_in_progress_builds(redis_conn))
 

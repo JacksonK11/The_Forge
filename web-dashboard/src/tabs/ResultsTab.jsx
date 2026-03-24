@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from "react";
-import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload } from "../api.js";
+import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload, resumeRun, forceFailRun } from "../api.js";
 import { BASE_URL } from "../api.js";
 
 const LAYER_LABELS = {
@@ -175,6 +175,28 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
     }
   }
 
+  async function handleResume() {
+    if (!selectedRun) return;
+    const id = selectedRun.id || selectedRun.run_id;
+    try {
+      await resumeRun(id);
+      await loadRunDetail(id);
+    } catch (err) {
+      alert(`Resume failed: ${err.message}`);
+    }
+  }
+
+  async function handleForceFail() {
+    if (!selectedRun) return;
+    const id = selectedRun.id || selectedRun.run_id;
+    try {
+      await forceFailRun(id);
+      await loadRunDetail(id);
+    } catch (err) {
+      alert(`Force fail failed: ${err.message}`);
+    }
+  }
+
   function handleSelectRun(run) {
     setSelectedRun(run);
     setRunFiles([]);
@@ -191,6 +213,8 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
     setRunFiles([]);
     setSelectedFile(null);
   }
+
+  const ACTIVE_STATUSES = ["generating", "architecting", "queued", "validating", "parsing", "packaging"];
 
   const files = runFiles;
   const layerGroups = groupFilesByLayer(files);
@@ -319,6 +343,22 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                 {registering ? "Registering..." : "Add to Office"}
               </button>
             </div>
+            {selectedRun.status === "failed" && (
+              <button
+                onClick={handleResume}
+                className="w-full min-h-[44px] px-4 py-3 bg-amber-700 hover:bg-amber-600 active:bg-amber-500 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Resume
+              </button>
+            )}
+            {ACTIVE_STATUSES.includes(selectedRun.status) && (
+              <button
+                onClick={handleForceFail}
+                className="w-full min-h-[44px] px-4 py-3 bg-red-900 hover:bg-red-800 active:bg-red-700 text-red-200 text-sm font-medium rounded-lg transition-colors"
+              >
+                Mark Failed
+              </button>
+            )}
           </div>
 
           {registerMsg && (
@@ -348,6 +388,13 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               </div>
             ))}
           </div>
+
+          {/* Error banner — mobile */}
+          {selectedRun.error_message && (
+            <div className="bg-red-950/30 border border-red-900 rounded-lg px-4 py-3 text-red-300 text-sm mb-5">
+              {selectedRun.error_message}
+            </div>
+          )}
 
           {/* Deployment links */}
           {slug && (
@@ -689,6 +736,22 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                 >
                   {registering ? "Registering..." : "Add to Office"}
                 </button>
+                {selectedRun.status === "failed" && (
+                  <button
+                    onClick={handleResume}
+                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white text-xs rounded-lg transition-colors"
+                  >
+                    Resume
+                  </button>
+                )}
+                {ACTIVE_STATUSES.includes(selectedRun.status) && (
+                  <button
+                    onClick={handleForceFail}
+                    className="px-3 py-1.5 bg-red-900 hover:bg-red-800 text-red-200 text-xs rounded-lg transition-colors"
+                  >
+                    Mark Failed
+                  </button>
+                )}
               </div>
             </div>
 
@@ -696,6 +759,13 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               <p className="text-sm text-teal-300 bg-teal-950/30 border border-teal-900 rounded-lg px-3 py-2 mb-4">
                 {registerMsg}
               </p>
+            )}
+
+            {/* Error banner — desktop */}
+            {selectedRun.error_message && (
+              <div className="bg-red-950/30 border border-red-900 rounded-lg px-4 py-3 text-red-300 text-sm mb-5">
+                {selectedRun.error_message}
+              </div>
             )}
 
             {/* Stats */}
