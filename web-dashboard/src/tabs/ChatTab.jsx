@@ -82,7 +82,9 @@ function MessageBubble({ msg, isMobile }) {
             : "bg-gray-800 text-gray-200 rounded-tl-sm"
         }`}
       >
-        <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+        <div className="leading-relaxed overflow-x-auto">
+          <div className="whitespace-pre-wrap min-w-0">{msg.content}</div>
+        </div>
         {msg.timestamp && (
           <p className={`text-xs mt-1 ${isUser ? "text-purple-300" : "text-gray-500"}`}>
             {new Date(msg.timestamp).toLocaleTimeString([], {

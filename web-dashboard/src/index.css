@@ -714,6 +714,29 @@ body {
     max-height: 2000px;
     opacity: 1;
   }
+
+  /* Tables: horizontal scroll on mobile */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  /* Code blocks: horizontal scroll */
+  pre {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+  }
+
+  /* Mono text: minimum size */
+  .font-mono, code, pre {
+    font-size: 12px;
+  }
 }
 
 /* Tablet breakpoint — 2 columns */

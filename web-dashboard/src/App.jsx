@@ -163,7 +163,7 @@ export default function App() {
       case "architecture":
         return <ArchitectureTab />;
       case "settings":
-        return <SettingsTab isActive={activeTab === "settings"} />;
+        return <SettingsTab isActive={activeTab === "settings"} isMobile={isMobile} />;
       default:
         return null;
     }

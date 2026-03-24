@@ -43,7 +43,7 @@ function formatTime(isoString) {
 
 // ── System Health section ─────────────────────────────────────────────────────
 
-function SystemHealth() {
+function SystemHealth({ isMobile = false }) {
   const [health, setHealth] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -97,7 +97,7 @@ function SystemHealth() {
       ) : !health ? (
         <p className="text-gray-600 text-sm">Loading...</p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className={`grid gap-3 ${isMobile ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"}`}>
           {components.map(({ key, label, status }) => (
             <div
               key={key}
@@ -114,7 +114,7 @@ function SystemHealth() {
       )}
 
       {health && (
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs text-gray-500">
+        <div className={`mt-3 grid gap-3 text-xs text-gray-500 ${isMobile ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"}`}>
           <span>Uptime: {Math.floor((health.api?.uptime_seconds || 0) / 60)}m</span>
           <span>Queue depth: {health.redis?.queue_depth ?? "—"}</span>
           <span>Redis mem: {health.redis?.memory_used_mb ?? "—"} MB</span>
@@ -127,7 +127,7 @@ function SystemHealth() {
 
 // ── Worker Logs section ───────────────────────────────────────────────────────
 
-function WorkerLogs({ isActive }) {
+function WorkerLogs({ isActive, isMobile = false }) {
   const [logs, setLogs] = useState([]);
   const [totalRead, setTotalRead] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -206,7 +206,7 @@ function WorkerLogs({ isActive }) {
         <p className="text-gray-600 text-sm">No log entries found.</p>
       ) : (
         <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-          <div className="overflow-y-auto max-h-[480px] font-mono text-xs leading-relaxed">
+          <div className={`overflow-y-auto font-mono text-xs leading-relaxed ${isMobile ? "max-h-64" : "max-h-[480px]"}`}>
             {logs.map((entry, i) => (
               <div
                 key={i}
@@ -268,7 +268,7 @@ const SETTING_GROUPS = [
   },
 ];
 
-function ConfigurationSection() {
+function ConfigurationSection({ isMobile = false }) {
   const [settings, setSettings] = useState({});
   const [dirty, setDirty] = useState({});
   const [loading, setLoading] = useState(true);
@@ -353,8 +353,8 @@ function ConfigurationSection() {
             </h3>
             <div className="space-y-3">
               {group.fields.map((field) => (
-                <div key={field.key} className="flex items-center justify-between gap-4">
-                  <label className="text-gray-300 text-sm flex-shrink-0 w-48">
+                <div key={field.key} className={`flex gap-4 ${isMobile ? "flex-col" : "items-center justify-between"}`}>
+                  <label className={`text-gray-300 flex-shrink-0 ${isMobile ? "text-sm" : "text-sm w-48"}`}>
                     {field.label}
                   </label>
                   {field.type === "checkbox" ? (
@@ -369,7 +369,7 @@ function ConfigurationSection() {
                       type={field.type}
                       value={settings[field.key] ?? ""}
                       onChange={(e) => handleChange(field.key, e.target.value)}
-                      className="flex-1 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-purple-600 min-w-0"
+                      className={`bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-purple-600 min-w-0 ${isMobile ? "w-full" : "flex-1"}`}
                     />
                   )}
                 </div>
@@ -379,11 +379,11 @@ function ConfigurationSection() {
         ))}
       </div>
 
-      <div className="mt-4 flex items-center gap-4">
+      <div className={`mt-4 flex items-center gap-4 ${isMobile ? "flex-col" : ""}`}>
         <button
           onClick={handleSave}
           disabled={saving || Object.keys(dirty).length === 0}
-          className="px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
+          className={`px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors ${isMobile ? "w-full min-h-[44px]" : ""}`}
         >
           {saving ? "Saving..." : "Save Settings"}
         </button>
@@ -396,12 +396,12 @@ function ConfigurationSection() {
 
 // ── Main SettingsTab ──────────────────────────────────────────────────────────
 
-export default function SettingsTab({ isActive = true }) {
+export default function SettingsTab({ isActive = false, isMobile = false }) {
   return (
     <div className="max-w-5xl mx-auto">
-      <SystemHealth />
-      <WorkerLogs isActive={isActive} />
-      <ConfigurationSection />
+      <SystemHealth isMobile={isMobile} />
+      <WorkerLogs isActive={isActive} isMobile={isMobile} />
+      <ConfigurationSection isMobile={isMobile} />
     </div>
   );
 }

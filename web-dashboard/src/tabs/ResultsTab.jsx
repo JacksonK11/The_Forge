@@ -256,7 +256,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                       onClick={() => handleSelectRun(run)}
                       className="w-full text-left px-4 py-4 border-b border-gray-800 transition-colors hover:bg-gray-800 active:bg-gray-750 min-h-[60px]"
                     >
-                      <p className="text-gray-200 text-sm font-medium truncate">{run.title}</p>
+                      <p className="text-gray-200 text-base font-medium truncate">{run.title}</p>
                       <div className="flex items-center gap-2 mt-1.5">
                         <StatusBadge status={run.status} />
                         <span className="text-gray-600 text-xs font-mono">
@@ -496,7 +496,7 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
                       ✕
                     </button>
                   </div>
-                  <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap">
+                  <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap max-w-full">
                     {selectedFile.content || selectedFile.generated_content || "No content available."}
                   </pre>
                 </div>
