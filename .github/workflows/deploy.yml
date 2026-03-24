@@ -43,6 +43,6 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy the-forge-dashboard
-        run: flyctl deploy --app the-forge-dashboard --config web-dashboard/fly.toml --remote-only
+        run: cd web-dashboard && flyctl deploy --app the-forge-dashboard --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
