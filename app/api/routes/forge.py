@@ -114,8 +114,8 @@ class SubmitWithFilesResponse(BaseModel):
 @router.post("/submit", response_model=SubmitBlueprintResponse)
 @limiter.limit("10/hour")
 async def submit_blueprint(
-    http_request: Request,
-    request: SubmitBlueprintRequest,
+    request: Request,
+    body: SubmitBlueprintRequest,
     session: AsyncSession = Depends(get_db),
 ) -> SubmitBlueprintResponse:
     """
@@ -126,15 +126,15 @@ async def submit_blueprint(
     from app.api.main import get_build_queue
 
     run_id = str(uuid.uuid4())
-    resolved_repo_name = request.repo_name or _slug(request.title)
+    resolved_repo_name = body.repo_name or _slug(body.title)
 
     run = ForgeRun(
         run_id=run_id,
-        title=request.title,
-        blueprint_text=request.blueprint_text,
+        title=body.title,
+        blueprint_text=body.blueprint_text,
         status=RunStatus.QUEUED.value,
         repo_name=resolved_repo_name,
-        push_to_github=request.push_to_github,
+        push_to_github=body.push_to_github,
     )
     session.add(run)
     await session.commit()
@@ -148,8 +148,8 @@ async def submit_blueprint(
             job_timeout=3600,
         )
         logger.info(
-            f"Build queued: run_id={run_id} title='{request.title}' "
-            f"repo={resolved_repo_name} push_to_github={request.push_to_github}"
+            f"Build queued: run_id={run_id} title='{body.title}' "
+            f"repo={resolved_repo_name} push_to_github={body.push_to_github}"
         )
     except Exception as exc:
         run.status = RunStatus.FAILED.value
@@ -168,7 +168,7 @@ async def submit_blueprint(
 @router.post("/submit-with-files", response_model=SubmitWithFilesResponse)
 @limiter.limit("10/hour")
 async def submit_with_files(
-    http_request: Request,
+    request: Request,
     title: str = Form(...),
     blueprint_text: str = Form(...),
     repo_name: Optional[str] = Form(None),
