@@ -132,6 +132,10 @@ def _run_orphan_detector_in_thread(redis_conn: Redis) -> None:
         loop.close()
 
 
+MAX_BUILD_RETRIES = 3
+STALE_TIMEOUT_MINUTES = 20
+
+
 async def _detect_and_requeue_orphans(
     redis_conn: Redis,
     last_file_counts: dict[str, tuple[int, float]],
@@ -141,7 +145,7 @@ async def _detect_and_requeue_orphans(
     from memory.database import get_session
     from memory.models import ForgeRun, RunStatus
     from pipeline.pipeline import run_pipeline_sync
-    from sqlalchemy import select
+    from sqlalchemy import select, update
 
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
     stuck_statuses = (RunStatus.GENERATING.value, RunStatus.ARCHITECTING.value)
@@ -175,8 +179,40 @@ async def _detect_and_requeue_orphans(
             )
             continue
 
-        # If file count hasn't changed since last check AND it's been 30+ min — orphaned
+        # If file count hasn't changed since last check — possibly orphaned
         if current_count == prev_count:
+            now = datetime.now(timezone.utc)
+            stale_cutoff = now - timedelta(minutes=STALE_TIMEOUT_MINUTES)
+
+            # ── Stale timeout: 0 files and stuck > STALE_TIMEOUT_MINUTES ────
+            if current_count == 0 and run.updated_at < stale_cutoff:
+                fail_msg = (
+                    f"Build timed out — stuck in '{run.status}' for "
+                    f"{STALE_TIMEOUT_MINUTES}+ minutes with no output"
+                )
+                logger.warning(f"[{run_id}] {fail_msg}")
+                async with get_session() as session:
+                    await session.execute(
+                        update(ForgeRun)
+                        .where(ForgeRun.run_id == run_id)
+                        .values(status=RunStatus.FAILED.value, error_message=fail_msg)
+                    )
+                last_file_counts.pop(run_id, None)
+                continue
+
+            # ── Max retry circuit breaker ────────────────────────────────────
+            if run.retry_count >= MAX_BUILD_RETRIES:
+                fail_msg = f"Max retries exceeded — build failed {MAX_BUILD_RETRIES} times"
+                logger.warning(f"[{run_id}] {fail_msg} (retry_count={run.retry_count})")
+                async with get_session() as session:
+                    await session.execute(
+                        update(ForgeRun)
+                        .where(ForgeRun.run_id == run_id)
+                        .values(status=RunStatus.FAILED.value, error_message=fail_msg)
+                    )
+                last_file_counts.pop(run_id, None)
+                continue
+
             job_id = f"build-{run_id}-resume"
 
             # Check if ANY job for this run is already queued or currently executing.
@@ -193,11 +229,19 @@ async def _detect_and_requeue_orphans(
                 pass
 
             existing_job_ids = {j.id for j in queue.jobs} | running_job_ids
-            # Any job whose id starts with "build-{run_id}" means this run is active
             run_prefix = f"build-{run_id}"
             if any(jid.startswith(run_prefix) for jid in existing_job_ids):
                 logger.debug(f"[{run_id}] Job already queued or running — skipping orphan re-queue")
                 continue
+
+            # ── Increment retry_count before re-queuing ───────────────────────
+            new_retry = run.retry_count + 1
+            async with get_session() as session:
+                await session.execute(
+                    update(ForgeRun)
+                    .where(ForgeRun.run_id == run_id)
+                    .values(retry_count=new_retry)
+                )
 
             resume_from = "generating" if run.manifest_json else "resume_from_architecture"
             if run.status == RunStatus.ARCHITECTING.value:
@@ -211,11 +255,11 @@ async def _detect_and_requeue_orphans(
                 job_timeout=7200,
             )
             logger.warning(
-                f"[{run_id}] Orphaned build re-queued: "
+                f"[{run_id}] Orphaned build re-queued "
+                f"(retry {new_retry}/{MAX_BUILD_RETRIES}): "
                 f"resume_from={resume_from} files_complete={current_count}"
             )
 
-            # Send Telegram notification
             try:
                 from app.api.services.notify import _send
                 await _send(
@@ -223,13 +267,13 @@ async def _detect_and_requeue_orphans(
                     f"<b>{run.title}</b>\n"
                     f"Run ID: <code>{run_id}</code>\n\n"
                     f"Build was stuck in '{run.status}' for 30+ minutes.\n"
-                    f"Automatically re-queued from '{resume_from}'.\n"
+                    f"Retry <b>{new_retry}/{MAX_BUILD_RETRIES}</b> — "
+                    f"resuming from '{resume_from}'.\n"
                     f"Files completed before crash: <b>{current_count}</b>"
                 )
             except Exception as notify_exc:
                 logger.error(f"[{run_id}] Orphan notification failed: {notify_exc}")
 
-            # Clear from tracking — it's been re-queued
             last_file_counts.pop(run_id, None)
         else:
             # Progress is being made — update tracking

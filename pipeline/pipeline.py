@@ -403,11 +403,33 @@ async def _update_run_status(
     spec: Optional[dict] = None,
 ) -> None:
     """Update run status in the database with resilience fallback."""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
     values: dict = {"status": status}
     if error:
         values["error_message"] = error
     if spec:
         values["spec_json"] = spec
+
+    # Append to status_history audit trail
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ForgeRun).where(ForgeRun.run_id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is not None:
+                history = list(run.status_history or [])
+                history.append({
+                    "status": status,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "retry": run.retry_count,
+                })
+                values["status_history"] = history
+    except Exception as exc:
+        logger.debug(f"[{run_id}] status_history read failed (non-blocking): {exc}")
+
     await _safe_db_write(run_id, values)
 
 

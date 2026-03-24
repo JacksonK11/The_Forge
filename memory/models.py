@@ -100,6 +100,12 @@ class ForgeRun(Base):
     # Office callback
     callback_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Retry circuit breaker
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Full status audit trail: [{"status": "...", "timestamp": "...", "retry": n}, ...]
+    status_history: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
