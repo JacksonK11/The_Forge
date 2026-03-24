@@ -263,13 +263,16 @@ async def _generate_file_content(
         else:
             raise
 
-    # Record usage for cost tracking
+    # Record usage for cost tracking — persist to DB
     if hasattr(response, "usage"):
-        cost_usd = model_router.record_usage(
+        cost_usd = await model_router.persist_cost(
+            run_id=run_id,
+            stage="generating",
             model=model,
             task_type="generation",
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            file_path=file_path or None,
         )
         logger.debug(
             f"[{run_id}] {model} generation: "
@@ -391,13 +394,16 @@ async def _evaluate_file(file_path: str, purpose: str, content: str, run_id: str
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # Log Haiku usage
+        # Log Haiku usage — persist to DB
         if hasattr(response, "usage"):
-            model_router.record_usage(
+            await model_router.persist_cost(
+                run_id=run_id,
+                stage="evaluating",
                 model=model,
                 task_type="evaluation",
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
+                file_path=file_path or None,
             )
             logger.debug(
                 f"[{run_id}] {model} evaluation for {file_path}: "

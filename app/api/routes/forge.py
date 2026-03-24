@@ -106,6 +106,7 @@ class FileExtractResponse(BaseModel):
 class SubmitWithFilesResponse(BaseModel):
     run_id: str
     status: str
+    files_attached: int = 0
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -278,6 +279,7 @@ async def submit_with_files(
     return SubmitWithFilesResponse(
         run_id=run_id,
         status=RunStatus.QUEUED.value,
+        files_attached=len(files),
     )
 
 

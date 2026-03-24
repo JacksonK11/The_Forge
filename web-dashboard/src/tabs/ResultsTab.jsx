@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload } from "../api.js";
+import { BASE_URL } from "../api.js";
 
 const LAYER_LABELS = {
   1: "Layer 1: Database Schema",
@@ -75,6 +76,10 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState(null);
   const [runFiles, setRunFiles] = useState([]);
+  const [runLogs, setRunLogs] = useState([]);
+  const [runCost, setRunCost] = useState(null);
+  const [runVersions, setRunVersions] = useState([]);
+  const [activeDetailTab, setActiveDetailTab] = useState("files");
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [registering, setRegistering] = useState(false);
@@ -100,14 +105,26 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
   async function loadRunDetail(runId) {
     setLoadingDetail(true);
     setRunFiles([]);
+    setRunLogs([]);
+    setRunCost(null);
+    setRunVersions([]);
     setSelectedFile(null);
+    setActiveDetailTab("files");
     try {
-      const [detail, files] = await Promise.all([
+      const API_KEY = import.meta.env.VITE_API_SECRET_KEY || "";
+      const headers = { Authorization: `Bearer ${API_KEY}` };
+      const [detail, files, logsRes, costRes, versionsRes] = await Promise.allSettled([
         getRun(runId),
         getRunFiles(runId, true),
+        fetch(`${BASE_URL}/forge/runs/${runId}/logs`, { headers }).then((r) => r.json()),
+        fetch(`${BASE_URL}/forge/runs/${runId}/cost`, { headers }).then((r) => r.json()),
+        fetch(`${BASE_URL}/forge/runs/${runId}/versions`, { headers }).then((r) => r.json()),
       ]);
-      setSelectedRun(detail);
-      setRunFiles(Array.isArray(files) ? files : []);
+      if (detail.status === "fulfilled") setSelectedRun(detail.value);
+      if (files.status === "fulfilled") setRunFiles(Array.isArray(files.value) ? files.value : []);
+      if (logsRes.status === "fulfilled") setRunLogs(Array.isArray(logsRes.value) ? logsRes.value : []);
+      if (costRes.status === "fulfilled") setRunCost(costRes.value);
+      if (versionsRes.status === "fulfilled") setRunVersions(Array.isArray(versionsRes.value) ? versionsRes.value : []);
     } catch {
       // non-fatal — selectedRun already set to summary
     } finally {
@@ -357,76 +374,205 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
             </div>
           )}
 
-          {/* File tree — single column stacked */}
-          {files.length > 0 && (
+          {/* Detail tabs */}
+          <div className="flex gap-0 mb-4 border-b border-gray-800 overflow-x-auto">
+            {[
+              { id: "files", label: files.length > 0 ? `Files (${files.length})` : "Files" },
+              { id: "logs", label: runLogs.length > 0 ? `Logs (${runLogs.length})` : "Logs" },
+              { id: "cost", label: "Cost" },
+              { id: "versions", label: runVersions.length > 0 ? `Versions (${runVersions.length})` : "Versions" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveDetailTab(tab.id)}
+                className={`px-4 py-2.5 text-xs font-medium uppercase tracking-wider transition-colors border-b-2 -mb-px flex-shrink-0 min-h-[44px] ${
+                  activeDetailTab === tab.id
+                    ? "text-purple-400 border-purple-500"
+                    : "text-gray-500 border-transparent"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Files tab */}
+          {activeDetailTab === "files" && (
+            <>
+              {files.length > 0 && (
+                <div className="mb-5">
+                  <div className="flex flex-col gap-3">
+                    {Object.entries(layerGroups)
+                      .sort(([a], [b]) => Number(a) - Number(b))
+                      .map(([layer, layerFiles]) => (
+                        <div key={layer} className="border border-gray-800 rounded-lg overflow-hidden w-full">
+                          <div className="bg-gray-800/50 px-4 py-2.5 text-xs text-gray-400 font-medium uppercase tracking-wider">
+                            {LAYER_LABELS[layer] || `Layer ${layer}`}
+                          </div>
+                          <div className="divide-y divide-gray-800">
+                            {layerFiles.map((f, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
+                                className={`w-full text-left px-4 py-3 hover:bg-gray-800 active:bg-gray-750 transition-colors flex items-center gap-3 min-h-[44px] ${
+                                  selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
+                                }`}
+                              >
+                                <FileStatusIcon status={f.status} />
+                                <span className="text-gray-300 text-sm font-mono flex-1 truncate">
+                                  {f.file_path || f.path || f.filename}
+                                </span>
+                                {f.size && (
+                                  <span className="text-gray-600 text-xs font-mono flex-shrink-0">
+                                    {formatBytes(f.size)}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedFile && (
+                <div className="mb-5 border border-gray-700 rounded-lg overflow-hidden w-full">
+                  <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
+                    <span className="text-gray-300 text-xs font-mono truncate flex-1 mr-2">
+                      {selectedFile.file_path || selectedFile.path || selectedFile.filename}
+                    </span>
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-500 hover:text-gray-300 text-sm transition-colors flex-shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap">
+                    {selectedFile.content || selectedFile.generated_content || "No content available."}
+                  </pre>
+                </div>
+              )}
+
+              {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
+                <div className="mb-5 border border-orange-900 rounded-lg overflow-hidden w-full">
+                  <div className="bg-orange-950/30 px-4 py-2.5">
+                    <span className="text-orange-400 text-sm font-medium">Security Report</span>
+                  </div>
+                  <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
+                    {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
+                  </pre>
+                </div>
+              )}
+
+              {files.length === 0 && !loadingDetail && (
+                <p className="text-gray-600 text-sm">No files generated yet.</p>
+              )}
+            </>
+          )}
+
+          {/* Logs tab */}
+          {activeDetailTab === "logs" && (
             <div className="mb-5">
-              <h4 className="font-['Bebas_Neue'] text-xl text-gray-300 tracking-wider mb-3">
-                FILES
-              </h4>
-              <div className="flex flex-col gap-3">
-                {Object.entries(layerGroups)
-                  .sort(([a], [b]) => Number(a) - Number(b))
-                  .map(([layer, layerFiles]) => (
-                    <div key={layer} className="border border-gray-800 rounded-lg overflow-hidden w-full">
+              {runLogs.length === 0 ? (
+                <p className="text-gray-600 text-sm">No logs available.</p>
+              ) : (
+                <div className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                  <div className="max-h-[500px] overflow-y-auto font-['IBM_Plex_Mono'] text-xs divide-y divide-gray-800/50">
+                    {runLogs.map((log, i) => {
+                      const levelColor =
+                        log.level === "ERROR" ? "text-red-400" :
+                        log.level === "WARNING" ? "text-yellow-400" :
+                        log.level === "INFO" ? "text-blue-400" : "text-gray-500";
+                      return (
+                        <div key={i} className="px-4 py-2.5">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className={`text-xs flex-shrink-0 ${levelColor}`}>{log.level || "DEBUG"}</span>
+                            <span className="text-gray-600 text-xs flex-shrink-0">
+                              {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : ""}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 break-all leading-relaxed">{log.message}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Cost tab */}
+          {activeDetailTab === "cost" && (
+            <div className="mb-5">
+              {!runCost ? (
+                <p className="text-gray-600 text-sm">No cost data available.</p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { label: "Total Cost (USD)", value: `$${(runCost.total_cost_usd ?? 0).toFixed(4)}`, color: "text-yellow-400" },
+                      { label: "Total Cost (AUD)", value: `A$${(runCost.total_cost_aud ?? 0).toFixed(4)}`, color: "text-orange-400" },
+                      { label: "Total Tokens", value: ((runCost.total_input_tokens ?? 0) + (runCost.total_output_tokens ?? 0)).toLocaleString(), color: "text-cyan-400" },
+                    ].map((s) => (
+                      <div key={s.label} className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center justify-between">
+                        <span className="text-gray-400 text-sm">{s.label}</span>
+                        <span className={`text-lg font-bold font-mono ${s.color}`}>{s.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {runCost.breakdown && runCost.breakdown.length > 0 && (
+                    <div className="border border-gray-800 rounded-lg overflow-hidden">
                       <div className="bg-gray-800/50 px-4 py-2.5 text-xs text-gray-400 font-medium uppercase tracking-wider">
-                        {LAYER_LABELS[layer] || `Layer ${layer}`}
+                        Cost Breakdown by Stage
                       </div>
                       <div className="divide-y divide-gray-800">
-                        {layerFiles.map((f, i) => (
-                          <button
-                            key={i}
-                            onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
-                            className={`w-full text-left px-4 py-3 hover:bg-gray-800 active:bg-gray-750 transition-colors flex items-center gap-3 min-h-[44px] ${
-                              selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
-                            }`}
-                          >
-                            <FileStatusIcon status={f.status} />
-                            <span className="text-gray-300 text-sm font-mono flex-1 truncate">
-                              {f.file_path || f.path || f.filename}
-                            </span>
-                            {f.size && (
-                              <span className="text-gray-600 text-xs font-mono flex-shrink-0">
-                                {formatBytes(f.size)}
-                              </span>
+                        {runCost.breakdown.map((row, i) => (
+                          <div key={i} className="px-4 py-3">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-gray-300 text-sm capitalize">{row.stage}</span>
+                              <span className="text-yellow-400 text-sm font-mono font-medium">${(row.cost_usd ?? 0).toFixed(4)}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span className="font-mono truncate">{row.model}</span>
+                              <span>in:{(row.input_tokens ?? 0).toLocaleString()}</span>
+                              <span>out:{(row.output_tokens ?? 0).toLocaleString()}</span>
+                            </div>
+                            {row.file_path && (
+                              <p className="text-gray-600 text-xs font-mono mt-1 truncate">{row.file_path}</p>
                             )}
-                          </button>
+                          </div>
                         ))}
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Versions tab */}
+          {activeDetailTab === "versions" && (
+            <div className="mb-5">
+              {runVersions.length === 0 ? (
+                <p className="text-gray-600 text-sm">No version history available.</p>
+              ) : (
+                <div className="space-y-3">
+                  {runVersions.map((v, i) => (
+                    <div key={i} className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <span className="text-gray-200 text-sm font-medium font-mono">{v.version || `v${i + 1}`}</span>
+                        <span className="text-gray-500 text-xs font-mono">{v.created_at ? new Date(v.created_at).toLocaleString() : "—"}</span>
+                      </div>
+                      {v.changes && <p className="text-gray-400 text-sm mt-1">{v.changes}</p>}
+                      {v.file_count != null && (
+                        <p className="text-gray-600 text-xs mt-1">{v.file_count} files</p>
+                      )}
+                    </div>
                   ))}
-              </div>
-            </div>
-          )}
-
-          {/* File viewer */}
-          {selectedFile && (
-            <div className="mb-5 border border-gray-700 rounded-lg overflow-hidden w-full">
-              <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
-                <span className="text-gray-300 text-xs font-mono truncate flex-1 mr-2">
-                  {selectedFile.file_path || selectedFile.path || selectedFile.filename}
-                </span>
-                <button
-                  onClick={() => setSelectedFile(null)}
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-500 hover:text-gray-300 text-sm transition-colors flex-shrink-0"
-                >
-                  ✕
-                </button>
-              </div>
-              <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap">
-                {selectedFile.content || selectedFile.generated_content || "No content available."}
-              </pre>
-            </div>
-          )}
-
-          {/* Security report */}
-          {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
-            <div className="mb-5 border border-orange-900 rounded-lg overflow-hidden w-full">
-              <div className="bg-orange-950/30 px-4 py-2.5">
-                <span className="text-orange-400 text-sm font-medium">Security Report</span>
-              </div>
-              <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-                {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
-              </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -596,76 +742,199 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               </div>
             )}
 
-            {/* File tree */}
-            {files.length > 0 && (
+            {/* Detail tabs */}
+            <div className="flex gap-0 mb-5 border-b border-gray-800">
+              {[
+                { id: "files", label: files.length > 0 ? `Files (${files.length})` : "Files" },
+                { id: "logs", label: runLogs.length > 0 ? `Logs (${runLogs.length})` : "Logs" },
+                { id: "cost", label: "Cost" },
+                { id: "versions", label: runVersions.length > 0 ? `Versions (${runVersions.length})` : "Versions" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveDetailTab(tab.id)}
+                  className={`px-4 py-2 text-xs font-medium uppercase tracking-wider transition-colors border-b-2 -mb-px ${
+                    activeDetailTab === tab.id
+                      ? "text-purple-400 border-purple-500"
+                      : "text-gray-500 hover:text-gray-300 border-transparent"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Files tab */}
+            {activeDetailTab === "files" && (
+              <>
+                {files.length > 0 && (
+                  <div className="mb-6">
+                    <div className="space-y-4">
+                      {Object.entries(layerGroups)
+                        .sort(([a], [b]) => Number(a) - Number(b))
+                        .map(([layer, layerFiles]) => (
+                          <div key={layer} className="border border-gray-800 rounded-lg overflow-hidden">
+                            <div className="bg-gray-800/50 px-4 py-2 text-xs text-gray-400 font-medium uppercase tracking-wider">
+                              {LAYER_LABELS[layer] || `Layer ${layer}`}
+                            </div>
+                            <div className="divide-y divide-gray-800">
+                              {layerFiles.map((f, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
+                                  className={`w-full text-left px-4 py-2.5 hover:bg-gray-800 transition-colors flex items-center gap-3 ${
+                                    selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
+                                  }`}
+                                >
+                                  <FileStatusIcon status={f.status} />
+                                  <span className="text-gray-300 text-sm font-mono flex-1 truncate">
+                                    {f.file_path || f.path || f.filename}
+                                  </span>
+                                  {f.size && (
+                                    <span className="text-gray-600 text-xs font-mono flex-shrink-0">
+                                      {formatBytes(f.size)}
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedFile && (
+                  <div className="mb-6 border border-gray-700 rounded-lg overflow-hidden">
+                    <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
+                      <span className="text-gray-300 text-sm font-mono">
+                        {selectedFile.file_path || selectedFile.path || selectedFile.filename}
+                      </span>
+                      <button
+                        onClick={() => setSelectedFile(null)}
+                        className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
+                      {selectedFile.content || selectedFile.generated_content || "No content available."}
+                    </pre>
+                  </div>
+                )}
+
+                {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
+                  <div className="mb-6 border border-orange-900 rounded-lg overflow-hidden">
+                    <div className="bg-orange-950/30 px-4 py-2.5">
+                      <span className="text-orange-400 text-sm font-medium">Security Report</span>
+                    </div>
+                    <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
+                      {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
+                    </pre>
+                  </div>
+                )}
+
+                {files.length === 0 && !loadingDetail && (
+                  <p className="text-gray-600 text-sm">No files generated yet.</p>
+                )}
+              </>
+            )}
+
+            {/* Logs tab */}
+            {activeDetailTab === "logs" && (
               <div className="mb-6">
-                <h4 className="font-['Bebas_Neue'] text-xl text-gray-300 tracking-wider mb-3">
-                  FILES
-                </h4>
-                <div className="space-y-4">
-                  {Object.entries(layerGroups)
-                    .sort(([a], [b]) => Number(a) - Number(b))
-                    .map(([layer, layerFiles]) => (
-                      <div key={layer} className="border border-gray-800 rounded-lg overflow-hidden">
+                {runLogs.length === 0 ? (
+                  <p className="text-gray-600 text-sm">No logs available.</p>
+                ) : (
+                  <div className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                    <div className="max-h-[600px] overflow-y-auto font-['IBM_Plex_Mono'] text-xs divide-y divide-gray-800/50">
+                      {runLogs.map((log, i) => {
+                        const levelColor =
+                          log.level === "ERROR" ? "text-red-400" :
+                          log.level === "WARNING" ? "text-yellow-400" :
+                          log.level === "INFO" ? "text-blue-400" : "text-gray-500";
+                        return (
+                          <div key={i} className="flex gap-3 px-4 py-2 hover:bg-gray-900/50">
+                            <span className="text-gray-600 flex-shrink-0 w-20 truncate">
+                              {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "—"}
+                            </span>
+                            <span className={`flex-shrink-0 w-16 ${levelColor}`}>
+                              {log.level || "DEBUG"}
+                            </span>
+                            <span className="text-gray-300 break-all">{log.message}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Cost tab */}
+            {activeDetailTab === "cost" && (
+              <div className="mb-6">
+                {!runCost ? (
+                  <p className="text-gray-600 text-sm">No cost data available.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: "Total Cost (USD)", value: `$${(runCost.total_cost_usd ?? 0).toFixed(4)}`, color: "text-yellow-400" },
+                        { label: "Total Cost (AUD)", value: `A$${(runCost.total_cost_aud ?? 0).toFixed(4)}`, color: "text-orange-400" },
+                        { label: "Total Tokens", value: ((runCost.total_input_tokens ?? 0) + (runCost.total_output_tokens ?? 0)).toLocaleString(), color: "text-cyan-400" },
+                      ].map((s) => (
+                        <div key={s.label} className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-center">
+                          <p className={`text-xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                          <p className="text-gray-500 text-xs mt-0.5">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {runCost.breakdown && runCost.breakdown.length > 0 && (
+                      <div className="border border-gray-800 rounded-lg overflow-hidden">
                         <div className="bg-gray-800/50 px-4 py-2 text-xs text-gray-400 font-medium uppercase tracking-wider">
-                          {LAYER_LABELS[layer] || `Layer ${layer}`}
+                          Cost Breakdown by Stage
                         </div>
                         <div className="divide-y divide-gray-800">
-                          {layerFiles.map((f, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setSelectedFile(selectedFile?.file_path === f.file_path ? null : f)}
-                              className={`w-full text-left px-4 py-2.5 hover:bg-gray-800 transition-colors flex items-center gap-3 ${
-                                selectedFile?.file_path === f.file_path ? "bg-gray-800" : ""
-                              }`}
-                            >
-                              <FileStatusIcon status={f.status} />
-                              <span className="text-gray-300 text-sm font-mono flex-1 truncate">
-                                {f.file_path || f.path || f.filename}
-                              </span>
-                              {f.size && (
-                                <span className="text-gray-600 text-xs font-mono flex-shrink-0">
-                                  {formatBytes(f.size)}
-                                </span>
-                              )}
-                            </button>
+                          {runCost.breakdown.map((row, i) => (
+                            <div key={i} className="flex items-center gap-4 px-4 py-2.5 text-xs">
+                              <span className="text-gray-400 w-24 flex-shrink-0 capitalize">{row.stage}</span>
+                              <span className="text-gray-500 font-mono flex-shrink-0 w-28 truncate">{row.model}</span>
+                              <span className="text-gray-500 flex-1 truncate font-mono text-gray-600">{row.file_path || "—"}</span>
+                              <span className="text-gray-400 font-mono flex-shrink-0">in:{(row.input_tokens ?? 0).toLocaleString()}</span>
+                              <span className="text-gray-400 font-mono flex-shrink-0">out:{(row.output_tokens ?? 0).toLocaleString()}</span>
+                              <span className="text-yellow-400 font-mono font-medium flex-shrink-0">${(row.cost_usd ?? 0).toFixed(4)}</span>
+                            </div>
                           ))}
                         </div>
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Versions tab */}
+            {activeDetailTab === "versions" && (
+              <div className="mb-6">
+                {runVersions.length === 0 ? (
+                  <p className="text-gray-600 text-sm">No version history available.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {runVersions.map((v, i) => (
+                      <div key={i} className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
+                        <div className="flex items-center justify-between gap-4 mb-1">
+                          <span className="text-gray-200 text-sm font-medium font-mono">{v.version || `v${i + 1}`}</span>
+                          <span className="text-gray-500 text-xs font-mono">{v.created_at ? new Date(v.created_at).toLocaleString() : "—"}</span>
+                        </div>
+                        {v.changes && <p className="text-gray-400 text-xs mt-1">{v.changes}</p>}
+                        {v.file_count != null && (
+                          <p className="text-gray-600 text-xs mt-1">{v.file_count} files</p>
+                        )}
+                      </div>
                     ))}
-                </div>
-              </div>
-            )}
-
-            {/* File viewer */}
-            {selectedFile && (
-              <div className="mb-6 border border-gray-700 rounded-lg overflow-hidden">
-                <div className="bg-gray-800 px-4 py-2.5 flex items-center justify-between">
-                  <span className="text-gray-300 text-sm font-mono">
-                    {selectedFile.file_path || selectedFile.path || selectedFile.filename}
-                  </span>
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
-                  {selectedFile.content || selectedFile.generated_content || "No content available."}
-                </pre>
-              </div>
-            )}
-
-            {/* Security report */}
-            {files.some((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT")) && (
-              <div className="mb-6 border border-orange-900 rounded-lg overflow-hidden">
-                <div className="bg-orange-950/30 px-4 py-2.5">
-                  <span className="text-orange-400 text-sm font-medium">Security Report</span>
-                </div>
-                <pre className="bg-gray-950 text-gray-300 text-xs font-['IBM_Plex_Mono'] p-4 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-                  {files.find((f) => (f.file_path || f.path || f.filename || "").includes("SECURITY_REPORT"))?.content || ""}
-                </pre>
+                  </div>
+                )}
               </div>
             )}
           </div>

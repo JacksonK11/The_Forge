@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getRuns, getAgents, getHealth } from "../api.js";
+import { getRuns, getAgents, getHealth, getForgeStats } from "../api.js";
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -88,16 +88,24 @@ export default function OverviewTab({ isMobile = false }) {
   const [agents, setAgents] = useState([]);
   const [apiStatus, setApiStatus] = useState("checking");
   const [loading, setLoading] = useState(true);
+  const [forgeStats, setForgeStats] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [runsData, agentsData] = await Promise.allSettled([getRuns(), getAgents()]);
+      const [runsData, agentsData, statsData] = await Promise.allSettled([
+        getRuns(),
+        getAgents(),
+        getForgeStats(),
+      ]);
       if (runsData.status === "fulfilled") {
         setRuns(Array.isArray(runsData.value) ? runsData.value : []);
       }
       if (agentsData.status === "fulfilled") {
         setAgents(Array.isArray(agentsData.value) ? agentsData.value : []);
+      }
+      if (statsData.status === "fulfilled") {
+        setForgeStats(statsData.value);
       }
     } finally {
       setLoading(false);
@@ -170,12 +178,21 @@ export default function OverviewTab({ isMobile = false }) {
     },
   ];
 
+  const totalFilesGenerated = forgeStats?.total_files_generated ?? runs.reduce((acc, r) => acc + (r.file_count || 0), 0);
+  const monthlyCostAud = forgeStats?.monthly_cost_aud ?? 0;
+
   const secondaryStats = [
     {
       label: "Avg Files / Build",
       value: avgFiles,
       sub: "completed builds only",
       color: "text-cyan-400",
+    },
+    {
+      label: "Total Files Generated",
+      value: totalFilesGenerated.toLocaleString(),
+      sub: "all time",
+      color: "text-indigo-400",
     },
     {
       label: "Registered Agents",
@@ -188,6 +205,12 @@ export default function OverviewTab({ isMobile = false }) {
       value: `${successRate}%`,
       sub: "completed / total",
       color: successRate >= 80 ? "text-green-400" : successRate >= 50 ? "text-yellow-400" : "text-red-400",
+    },
+    {
+      label: "Monthly Cost",
+      value: `A$${monthlyCostAud.toFixed(2)}`,
+      sub: "this calendar month",
+      color: "text-orange-400",
     },
   ];
 
