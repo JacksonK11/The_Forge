@@ -56,7 +56,7 @@ _SUGGEST_IMPROVEMENTS_SCORE = 40
 _LARGE_BLUEPRINT_THRESHOLD = 60_000
 
 # Max tokens per call type
-_PARSE_MAX_TOKENS = 64_000
+_PARSE_MAX_TOKENS = 8_000       # Opus single-call parse — 8K is ample for spec JSON
 _SKELETON_MAX_TOKENS = 4_000
 _SECTION_MAX_TOKENS = 16_000
 
@@ -418,7 +418,7 @@ async def _parse_blueprint_single(
     prompt = build_parse_prompt(blueprint_text, meta_rules, knowledge_context)
     try:
         response = client.messages.create(
-            model=settings.claude_model,
+            model=settings.claude_opus_model,
             max_tokens=_PARSE_MAX_TOKENS,
             system=PARSE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
@@ -742,7 +742,7 @@ async def _parse_blueprint_chunked(
         try:
             response = client.messages.create(
                 model=settings.claude_model,
-                max_tokens=_PARSE_MAX_TOKENS,
+                max_tokens=_SECTION_MAX_TOKENS,
                 system=PARSE_SYSTEM,
                 messages=[{"role": "user", "content": extra_prompt}],
             )

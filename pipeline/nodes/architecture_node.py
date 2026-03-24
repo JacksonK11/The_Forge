@@ -82,7 +82,7 @@ async def _generate_manifest(spec: dict) -> dict:
     try:
         response = client.messages.create(
             model=settings.claude_model,
-            max_tokens=64000,
+            max_tokens=16000,
             system=ARCHITECTURE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )

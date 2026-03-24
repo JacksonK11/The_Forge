@@ -129,7 +129,7 @@ async def _call_claude_for_rules(outcomes_text: str) -> dict:
     model = router.get_model("meta_rules")
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=2000,
         system=META_RULES_SYSTEM,
         messages=[
             {

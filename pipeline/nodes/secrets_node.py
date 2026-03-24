@@ -2,20 +2,13 @@
 pipeline/nodes/secrets_node.py
 Generates FLY_SECRETS.txt — the ready-to-run deployment secrets file.
 
-Uses Claude Sonnet to produce a complete, accurate FLY_SECRETS.txt
-based on the spec's services and environment variables.
+Uses a deterministic template built directly from the spec — no Claude call needed.
 Every flyctl secrets set command is included for every service.
 """
 
-import anthropic
 from loguru import logger
 
-from app.api.services.retry import retry_async
-from config.settings import settings
 from pipeline.pipeline import PipelineState
-from pipeline.prompts.prompts import SECRETS_SYSTEM, SECRETS_USER
-
-client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
 async def generate_secrets_content(state: PipelineState) -> str:
@@ -23,62 +16,48 @@ async def generate_secrets_content(state: PipelineState) -> str:
     if not state.spec:
         raise ValueError("Secrets node requires spec")
 
-    spec = state.spec
-    services_text = "\n".join(
-        f"  - {s['name']} ({s.get('type', 'unknown')}, {s.get('machine', '')}, {s.get('memory', '')})"
-        for s in spec.get("fly_services", [])
-    )
-    env_vars_text = "\n".join(
-        f"  - {v['name']}: {v.get('description', '')} (required={v.get('required', True)}, example={v.get('example', 'N/A')})"
-        for v in spec.get("environment_variables", [])
-    )
-
-    prompt = SECRETS_USER.format(
-        spec_summary=f"Agent: {spec.get('agent_name')} ({spec.get('agent_slug')})\n{spec.get('description', '')}",
-        services=services_text,
-        env_vars=env_vars_text,
-    )
-
-    try:
-        content = await retry_async(
-            _call_claude_for_secrets,
-            prompt,
-            max_attempts=2,
-            label=f"secrets:{state.run_id}",
-        )
-        logger.info(f"[{state.run_id}] FLY_SECRETS.txt generated ({len(content)} chars)")
-        return content
-    except Exception as exc:
-        logger.error(f"[{state.run_id}] Secrets generation failed: {exc}")
-        return _fallback_secrets_content(spec)
+    content = _build_secrets_content(state.spec)
+    logger.info(f"[{state.run_id}] FLY_SECRETS.txt generated ({len(content)} chars)")
+    return content
 
 
-async def _call_claude_for_secrets(prompt: str) -> str:
-    """Call Claude to generate FLY_SECRETS.txt."""
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=4096,
-        system=SECRETS_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()
-
-
-def _fallback_secrets_content(spec: dict) -> str:
-    """Generate a basic FLY_SECRETS.txt if Claude call fails."""
-    agent_slug = spec.get("agent_slug", "agent")
+def _build_secrets_content(spec: dict) -> str:
+    """Build FLY_SECRETS.txt deterministically from spec — no Claude call required."""
+    agent_name = spec.get("agent_name", "Agent")
     lines = [
-        f"# FLY_SECRETS.txt — {spec.get('agent_name', 'Agent')}",
+        f"# FLY_SECRETS.txt — {agent_name}",
         "# Run these commands to configure your Fly.io deployment.",
         "# Replace all REPLACE_WITH_YOUR_VALUE placeholders before running.",
+        "# Order matters: set secrets before deploying each service.",
         "",
     ]
-    for service in spec.get("fly_services", []):
-        service_name = service["name"]
-        lines.append(f"# ── {service_name} ──────────────────────────────────")
-        for env_var in spec.get("environment_variables", []):
-            lines.append(
-                f"flyctl secrets set {env_var['name']}=REPLACE_WITH_YOUR_VALUE --app {service_name}"
-            )
+
+    env_vars = spec.get("environment_variables", [])
+    services = spec.get("fly_services", [])
+
+    for service in services:
+        service_name = service.get("name", "")
+        service_type = service.get("type", "")
+        lines.append(f"# ── {service_name} ({service_type}) ──────────────────────────────────")
+        for env_var in env_vars:
+            var_name = env_var.get("name", "")
+            description = env_var.get("description", "")
+            example = env_var.get("example", "")
+            required = env_var.get("required", True)
+            if not required:
+                lines.append(f"# Optional: {var_name} — {description}")
+                lines.append(f"# flyctl secrets set {var_name}={example or 'REPLACE_WITH_YOUR_VALUE'} --app {service_name}")
+            else:
+                comment = f"  # {description}" if description else ""
+                lines.append(
+                    f"flyctl secrets set {var_name}={example or 'REPLACE_WITH_YOUR_VALUE'} --app {service_name}{comment}"
+                )
         lines.append("")
+
+    # Redeploy reminder
+    if services:
+        lines.append("# After setting all secrets, deploy each service:")
+        for service in services:
+            lines.append(f"# flyctl deploy --app {service.get('name', '')}")
+
     return "\n".join(lines)

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str
     claude_model: str = "claude-sonnet-4-6"
     claude_fast_model: str = "claude-haiku-4-5-20251001"
+    claude_opus_model: str = "claude-opus-4-6"
 
     # ── OpenAI (embeddings only) ─────────────────────────────────────────────
     openai_api_key: str

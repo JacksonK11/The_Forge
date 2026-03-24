@@ -86,6 +86,7 @@ async def package_node(state: PipelineState) -> PipelineState:
         fly_secrets_content=fly_secrets_content,
         connection_test_content=connection_test_content,
         security_report_content=full_security_report,
+        failed_files_report_content=state.failed_files_report or None,
     )
 
     # ── Save ZIP to disk ─────────────────────────────────────────────────────

@@ -240,7 +240,7 @@ async def chat(
 
         response = await client.messages.create(
             model=_CHAT_MODEL,
-            max_tokens=4096,
+            max_tokens=800,
             system=system_prompt,
             messages=anthropic_messages,
         )

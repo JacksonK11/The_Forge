@@ -424,15 +424,46 @@ async def submit_blueprint_file(
     )
 
 
+@router.get("/runs/{run_id}/cost-estimate")
+async def get_cost_estimate(
+    run_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Pre-flight cost estimate for a run awaiting spec approval.
+
+    Uses the spec's file_list (available at confirming stage) to classify files
+    as normal or complex and compute an estimate before any generation begins.
+
+    Returns:
+        file_count, complex_file_count, estimated_cost_aud, cost_warning bool,
+        warning_message (if cost_warning), requires_confirmation bool.
+
+    Call this before POST /forge/runs/{id}/approve to show the estimate on the
+    spec approval screen. If requires_confirmation=true, pass force_high_cost=true
+    to the approve endpoint to proceed.
+    """
+    result = await session.execute(select(ForgeRun).where(ForgeRun.run_id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return _estimate_run_cost(run)
+
+
 @router.post("/runs/{run_id}/approve", response_model=ApproveSpecResponse)
 async def approve_spec(
     run_id: str,
+    force_high_cost: bool = False,
     session: AsyncSession = Depends(get_db),
 ) -> ApproveSpecResponse:
     """
     Approve the parsed spec and continue with code generation.
     Called from the dashboard Spec Confirmation screen (Stage 3).
     Run must be in CONFIRMING status.
+
+    If the estimated cost exceeds A$10, returns HTTP 402 with the cost estimate
+    and requires force_high_cost=true to proceed. This prevents accidentally
+    approving expensive builds without seeing the estimate first.
     """
     from app.api.main import get_build_queue
 
@@ -448,6 +479,21 @@ async def approve_spec(
             detail=f"Run is in status '{run.status}', not 'confirming'. Cannot approve.",
         )
 
+    # Pre-flight cost check — block high-cost builds unless explicitly confirmed
+    estimate = _estimate_run_cost(run)
+    if estimate["requires_confirmation"] and not force_high_cost:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "high_cost_warning",
+                "message": estimate["warning_message"],
+                "estimated_cost_aud": estimate["estimated_cost_aud"],
+                "file_count": estimate["file_count"],
+                "complex_file_count": estimate["complex_file_count"],
+                "tip": "Add ?force_high_cost=true to the approve request to proceed.",
+            },
+        )
+
     run.status = RunStatus.ARCHITECTING.value
     await session.commit()
 
@@ -460,7 +506,11 @@ async def approve_spec(
         job_timeout=3600,
     )
 
-    logger.info(f"Spec approved, resuming pipeline: run_id={run_id}")
+    logger.info(
+        f"Spec approved, resuming pipeline: run_id={run_id} "
+        f"estimated_cost=A${estimate['estimated_cost_aud']:.2f} "
+        f"force_high_cost={force_high_cost}"
+    )
     return ApproveSpecResponse(
         run_id=run_id,
         status=RunStatus.ARCHITECTING.value,
@@ -725,6 +775,67 @@ async def get_update(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _estimate_run_cost(run: ForgeRun) -> dict:
+    """
+    Estimate build cost from the spec's file_list.
+
+    Classification:
+      Normal file:  A$0.10  (1 Sonnet/Opus call, ~4K input + 3.5K output tokens)
+      Complex file: A$0.20  (split generation = 2 calls, keywords or >200 est. lines)
+
+    Complex keywords: execution, pipeline, assembler, orchestrat, engine, coordinator, dispatcher
+
+    Fixed overhead: A$0.50 (parse + architecture + packaging calls)
+    Warning threshold: A$10.00
+
+    Returns a dict suitable for direct use as an API response.
+    """
+    _COMPLEX_KEYWORDS = frozenset([
+        "execution", "pipeline", "assembler", "orchestrat", "engine",
+        "coordinator", "dispatcher",
+    ])
+    _COST_NORMAL_AUD = 0.10
+    _COST_COMPLEX_AUD = 0.20
+    _FIXED_OVERHEAD_AUD = 0.50
+    _WARNING_THRESHOLD_AUD = 10.0
+
+    spec = run.spec_json or {}
+    file_list = spec.get("file_list", [])
+    file_count = len(file_list)
+
+    complex_count = 0
+    for f in file_list:
+        desc = f.get("description", "").lower()
+        path = f.get("path", "").lower()
+        est_lines = f.get("estimated_lines", 0)
+        if any(kw in desc or kw in path for kw in _COMPLEX_KEYWORDS) or est_lines > 200:
+            complex_count += 1
+
+    normal_count = file_count - complex_count
+    estimated_aud = (
+        (normal_count * _COST_NORMAL_AUD)
+        + (complex_count * _COST_COMPLEX_AUD)
+        + _FIXED_OVERHEAD_AUD
+    )
+    estimated_usd = round(estimated_aud / 1.58, 2)
+    requires_confirmation = estimated_aud > _WARNING_THRESHOLD_AUD
+
+    return {
+        "run_id": run.run_id,
+        "file_count": file_count,
+        "complex_file_count": complex_count,
+        "estimated_cost_aud": round(estimated_aud, 2),
+        "estimated_cost_usd": estimated_usd,
+        "cost_warning": requires_confirmation,
+        "warning_message": (
+            f"This build has {file_count} files ({complex_count} complex, using split generation). "
+            f"Estimated cost A${estimated_aud:.2f} exceeds the A${_WARNING_THRESHOLD_AUD:.0f} "
+            f"confirmation threshold. Add ?force_high_cost=true to approve."
+        ) if requires_confirmation else None,
+        "requires_confirmation": requires_confirmation,
+    }
 
 
 def _slug(title: str) -> str:

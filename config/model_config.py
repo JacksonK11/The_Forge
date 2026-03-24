@@ -5,7 +5,7 @@ Routes Claude API calls to the appropriate model based on task type.
 Strategy (Part E — Cost Optimisation):
   claude-sonnet-4-6           → generation, architecture, synthesis, parsing, verification
   claude-haiku-4-5-20251001   → evaluation, validation, classification, scoring, summarisation
-  claude-opus-4-6             → NEVER used in The Forge pipeline. Sonnet handles everything.
+  claude-opus-4-6             → blueprint parse ONLY (one call per build, main parse_node path)
 
 This routing reduces API costs 35-40% vs all-Sonnet, while maintaining full quality.
 Every Claude call is logged with model, task_type, token counts, and cost in USD + AUD.
@@ -27,7 +27,7 @@ from config.settings import settings
 PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5-20251001": {"input": 0.25, "output": 1.25},
-    # Opus listed for reference only — should never appear in build_costs table
+    # Opus used only for main blueprint parse (one call per build)
     "claude-opus-4-6": {"input": 15.0, "output": 75.0},
 }
 
@@ -48,7 +48,6 @@ _SONNET_TASKS = frozenset([
     "verification",
     "reasoning",
     "readme",
-    "secrets",
     "meta_rules",
     "research",
     "strategy",

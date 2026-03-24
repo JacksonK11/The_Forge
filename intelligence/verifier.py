@@ -104,7 +104,7 @@ async def verify_package(
 
         response = client.messages.create(
             model=model,
-            max_tokens=2048,
+            max_tokens=2000,
             system=VERIFIER_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )

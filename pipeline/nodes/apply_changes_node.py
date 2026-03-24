@@ -177,7 +177,7 @@ async def _generate_file(
         try:
             response = await client.messages.create(
                 model=settings.claude_model,
-                max_tokens=32000,
+                max_tokens=16000,
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
             )

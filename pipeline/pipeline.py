@@ -55,6 +55,14 @@ class PipelineState:
     # Files that failed after all retries
     failed_files: list[str] = field(default_factory=list)
 
+    # Files saved as generation_failed placeholders (subset of failed_files)
+    generation_failed_files: list[str] = field(default_factory=list)
+
+    # Recovery pass results (populated by recovery_node)
+    rebuilt_files_count: int = 0
+    still_failed_files: list[str] = field(default_factory=list)
+    failed_files_report: str = ""
+
     # Pipeline errors by stage
     errors: list[str] = field(default_factory=list)
 
@@ -154,6 +162,14 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
     if state.current_stage == "failed":
         return
 
+    # ── Stage 4b: Recovery pass — rebuild generation_failed files ─────────────
+    if state.generation_failed_files:
+        try:
+            from pipeline.nodes.recovery_node import recovery_node
+            state = await recovery_node(state)
+        except Exception as _recovery_exc:
+            logger.error(f"Recovery node raised unexpectedly (non-blocking): {_recovery_exc}")
+
     # ── Stage 5: Package ─────────────────────────────────────────────────────
     state = await _run_stage(run_id, "packaging", package_node, state)
     if state.current_stage == "failed":
@@ -216,6 +232,8 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
                     duration_seconds=duration,
                     callback_url=run.callback_url,
                     github_repo_url=run.github_repo_url,
+                    generation_failed_files=state.still_failed_files or None,
+                    rebuilt_files_count=state.rebuilt_files_count,
                 )
     except Exception as exc:
         logger.error(f"Notification failed (non-blocking): {exc}")

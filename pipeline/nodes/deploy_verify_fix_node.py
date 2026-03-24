@@ -643,7 +643,7 @@ async def _diagnose_errors(
         )
         response = await client.messages.create(
             model=settings.claude_fast_model,
-            max_tokens=2048,
+            max_tokens=800,
             system=_DIAGNOSE_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )
@@ -738,7 +738,7 @@ async def _apply_fixes_to_repo(
         try:
             response = await client.messages.create(
                 model=settings.claude_model,
-                max_tokens=8192,
+                max_tokens=8000,
                 system=_FIX_SYSTEM,
                 messages=[{
                     "role": "user",
