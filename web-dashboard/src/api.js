@@ -198,6 +198,20 @@ export async function sendChatMessage(messages, memoryNotes, filesContext) {
   });
 }
 
+// ─── Analytics & Settings ─────────────────────────────────────────────────────
+
+export async function getAnalytics() {
+  return request("GET", "/forge/runs/analytics");
+}
+
+export async function getSettings() {
+  return request("GET", "/settings");
+}
+
+export async function saveSettings(data) {
+  return request("PUT", "/settings", data);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function triggerDownload(blob, filename) {

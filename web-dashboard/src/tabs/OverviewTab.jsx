@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getRuns, getAgents, getHealth, getForgeStats } from "../api.js";
+import { getRuns, getAgents, getHealth, getForgeStats, getAnalytics } from "../api.js";
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -89,6 +89,8 @@ export default function OverviewTab({ isMobile = false }) {
   const [apiStatus, setApiStatus] = useState("checking");
   const [loading, setLoading] = useState(true);
   const [forgeStats, setForgeStats] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,6 +114,18 @@ export default function OverviewTab({ isMobile = false }) {
     }
   }, []);
 
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const data = await getAnalytics();
+      setAnalytics(data);
+    } catch {
+      // non-fatal — analytics may not be available yet
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, []);
+
   const checkHealth = useCallback(async () => {
     try {
       await getHealth();
@@ -124,7 +138,8 @@ export default function OverviewTab({ isMobile = false }) {
   useEffect(() => {
     load();
     checkHealth();
-  }, [load, checkHealth]);
+    loadAnalytics();
+  }, [load, checkHealth, loadAnalytics]);
 
   const totalBuilds = runs.length;
   const completed = runs.filter((r) => r.status === "complete").length;
@@ -365,6 +380,142 @@ export default function OverviewTab({ isMobile = false }) {
           </div>
         </CollapsiblePanel>
       )}
+
+      {/* Analytics */}
+      <CollapsiblePanel
+        title="ANALYTICS"
+        defaultOpen={!isMobile}
+        isMobile={isMobile}
+      >
+        {analytics && analytics.recent_success_rate < 80 && analytics.total_builds >= 5 && (
+          <div className="mb-4 px-4 py-3 bg-amber-900/40 border border-amber-700 rounded-xl text-amber-400 text-sm">
+            Success rate below 80% — check failed builds
+          </div>
+        )}
+        <div className={`grid gap-4 mb-6 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-4"}`}>
+          <div className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}>
+            {isMobile ? (
+              <>
+                <div className="flex-shrink-0">
+                  <p className="text-2xl font-bold font-mono text-blue-400">
+                    {analyticsLoading ? "—" : analytics ? (() => {
+                      const secs = analytics.avg_duration_seconds || 0;
+                      const m = Math.floor(secs / 60);
+                      const s = Math.round(secs % 60);
+                      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+                    })() : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-300 text-sm font-medium">Avg Build Time</p>
+                  <p className="text-gray-600 text-xs">last 10 completed</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold font-mono text-blue-400">
+                  {analyticsLoading ? "—" : analytics ? (() => {
+                    const secs = analytics.avg_duration_seconds || 0;
+                    const m = Math.floor(secs / 60);
+                    const s = Math.round(secs % 60);
+                    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+                  })() : "—"}
+                </p>
+                <p className="text-gray-300 text-sm font-medium mt-1">Avg Build Time</p>
+                <p className="text-gray-600 text-xs mt-0.5">last 10 completed</p>
+              </>
+            )}
+          </div>
+
+          <div className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}>
+            {isMobile ? (
+              <>
+                <div className="flex-shrink-0">
+                  <p className="text-2xl font-bold font-mono text-cyan-400">
+                    {analyticsLoading ? "—" : analytics ? analytics.avg_files_per_build : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-300 text-sm font-medium">Avg Files/Build</p>
+                  <p className="text-gray-600 text-xs">completed builds</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold font-mono text-cyan-400">
+                  {analyticsLoading ? "—" : analytics ? analytics.avg_files_per_build : "—"}
+                </p>
+                <p className="text-gray-300 text-sm font-medium mt-1">Avg Files/Build</p>
+                <p className="text-gray-600 text-xs mt-0.5">completed builds</p>
+              </>
+            )}
+          </div>
+
+          <div className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}>
+            {isMobile ? (
+              <>
+                <div className="flex-shrink-0">
+                  <p className="text-2xl font-bold font-mono text-orange-400">
+                    {analyticsLoading ? "—" : analytics ? `A$${Number(analytics.avg_cost_aud).toFixed(2)}` : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-300 text-sm font-medium">Avg Cost AUD</p>
+                  <p className="text-gray-600 text-xs">per completed build</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold font-mono text-orange-400">
+                  {analyticsLoading ? "—" : analytics ? `A$${Number(analytics.avg_cost_aud).toFixed(2)}` : "—"}
+                </p>
+                <p className="text-gray-300 text-sm font-medium mt-1">Avg Cost AUD</p>
+                <p className="text-gray-600 text-xs mt-0.5">per completed build</p>
+              </>
+            )}
+          </div>
+
+          <div className={`bg-gray-900 border border-gray-800 rounded-xl ${isMobile ? "p-4 flex items-center gap-4" : "p-5"}`}>
+            {isMobile ? (
+              <>
+                <div className="flex-shrink-0">
+                  <p className={`text-2xl font-bold font-mono ${
+                    analyticsLoading || !analytics
+                      ? "text-gray-400"
+                      : analytics.recent_success_rate >= 80
+                      ? "text-green-400"
+                      : analytics.recent_success_rate >= 50
+                      ? "text-yellow-400"
+                      : "text-red-400"
+                  }`}>
+                    {analyticsLoading ? "—" : analytics ? `${analytics.recent_success_rate}%` : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-300 text-sm font-medium">Recent Success Rate</p>
+                  <p className="text-gray-600 text-xs">last 30 runs</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className={`text-2xl font-bold font-mono ${
+                  analyticsLoading || !analytics
+                    ? "text-gray-400"
+                    : analytics.recent_success_rate >= 80
+                    ? "text-green-400"
+                    : analytics.recent_success_rate >= 50
+                    ? "text-yellow-400"
+                    : "text-red-400"
+                }`}>
+                  {analyticsLoading ? "—" : analytics ? `${analytics.recent_success_rate}%` : "—"}
+                </p>
+                <p className="text-gray-300 text-sm font-medium mt-1">Recent Success Rate</p>
+                <p className="text-gray-600 text-xs mt-0.5">last 30 runs</p>
+              </>
+            )}
+          </div>
+        </div>
+      </CollapsiblePanel>
 
       {/* Recent activity */}
       <CollapsiblePanel

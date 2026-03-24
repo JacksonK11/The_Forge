@@ -138,6 +138,116 @@ async def list_runs(
     )
 
 
+@router.get("/analytics")
+async def get_analytics(session: AsyncSession = Depends(get_db)) -> dict:
+    """
+    Aggregate analytics across all forge runs.
+    Returns totals, averages, recent success rate, and a last-30-days breakdown.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    # Total builds
+    total_result = await session.execute(select(func.count(ForgeRun.run_id)))
+    total_builds = total_result.scalar_one() or 0
+
+    # Completed / failed counts
+    completed_result = await session.execute(
+        select(func.count(ForgeRun.run_id)).where(ForgeRun.status == "complete")
+    )
+    completed = completed_result.scalar_one() or 0
+
+    failed_result = await session.execute(
+        select(func.count(ForgeRun.run_id)).where(ForgeRun.status == "failed")
+    )
+    failed = failed_result.scalar_one() or 0
+
+    success_rate = round((completed / total_builds * 100), 1) if total_builds > 0 else 0.0
+
+    # avg_duration_seconds: last 10 completed builds — computed from updated_at - created_at
+    recent_complete_result = await session.execute(
+        select(ForgeRun)
+        .where(ForgeRun.status == "complete")
+        .order_by(ForgeRun.created_at.desc())
+        .limit(10)
+    )
+    recent_complete_runs = recent_complete_result.scalars().all()
+    if recent_complete_runs:
+        durations = [
+            (r.updated_at - r.created_at).total_seconds()
+            for r in recent_complete_runs
+            if r.updated_at and r.created_at
+        ]
+        avg_duration_seconds = round(sum(durations) / len(durations), 1) if durations else 0.0
+    else:
+        avg_duration_seconds = 0.0
+
+    # avg_files_per_build: avg file_count where status=complete
+    avg_files_result = await session.execute(
+        select(func.avg(ForgeRun.file_count)).where(ForgeRun.status == "complete")
+    )
+    avg_files_per_build = round(float(avg_files_result.scalar_one() or 0), 1)
+
+    # avg_cost_aud: approximate — avg of files_complete * 0.002 where status=complete
+    avg_cost_result = await session.execute(
+        select(func.avg(ForgeRun.files_complete * 0.002)).where(ForgeRun.status == "complete")
+    )
+    avg_cost_aud = round(float(avg_cost_result.scalar_one() or 0), 4)
+
+    # total_files_generated: sum of files_complete across all runs
+    total_files_result = await session.execute(
+        select(func.sum(ForgeRun.files_complete))
+    )
+    total_files_generated = int(total_files_result.scalar_one() or 0)
+
+    # recent_success_rate: success rate of last 30 runs
+    last_30_result = await session.execute(
+        select(ForgeRun)
+        .where(ForgeRun.status.in_(["complete", "failed"]))
+        .order_by(ForgeRun.created_at.desc())
+        .limit(30)
+    )
+    last_30_runs = last_30_result.scalars().all()
+    if last_30_runs:
+        recent_completed = sum(1 for r in last_30_runs if r.status == "complete")
+        recent_success_rate = round(recent_completed / len(last_30_runs) * 100, 1)
+    else:
+        recent_success_rate = 0.0
+
+    # last_30_days: count per day
+    since_30 = datetime.now(timezone.utc) - timedelta(days=30)
+    last_30_days_result = await session.execute(
+        select(ForgeRun)
+        .where(ForgeRun.created_at >= since_30)
+        .order_by(ForgeRun.created_at.asc())
+    )
+    last_30_days_runs = last_30_days_result.scalars().all()
+
+    # Aggregate by date
+    day_map: dict[str, dict] = {}
+    for r in last_30_days_runs:
+        day_str = r.created_at.strftime("%Y-%m-%d")
+        if day_str not in day_map:
+            day_map[day_str] = {"date": day_str, "builds": 0, "completed": 0}
+        day_map[day_str]["builds"] += 1
+        if r.status == "complete":
+            day_map[day_str]["completed"] += 1
+    last_30_days = sorted(day_map.values(), key=lambda x: x["date"])
+
+    return {
+        "total_builds": total_builds,
+        "completed": completed,
+        "failed": failed,
+        "success_rate": success_rate,
+        "avg_duration_seconds": avg_duration_seconds,
+        "avg_files_per_build": avg_files_per_build,
+        "avg_cost_aud": avg_cost_aud,
+        "total_files_generated": total_files_generated,
+        "recent_success_rate": recent_success_rate,
+        "common_failure_stage": None,
+        "last_30_days": last_30_days,
+    }
+
+
 @router.get("/{run_id}", response_model=RunDetail)
 async def get_run(
     run_id: str,

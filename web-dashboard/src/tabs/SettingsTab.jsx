@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getDetailedHealth, getRecentLogs } from "../api.js";
+import { getDetailedHealth, getRecentLogs, getSettings, saveSettings } from "../api.js";
 
 // ── Status dot ────────────────────────────────────────────────────────────────
 
@@ -230,6 +230,170 @@ function WorkerLogs({ isActive }) {
   );
 }
 
+// ── Configuration section ─────────────────────────────────────────────────────
+
+const SETTING_GROUPS = [
+  {
+    label: "Model Routing",
+    fields: [
+      { key: "claude_model", label: "Claude Model", type: "text" },
+      { key: "claude_fast_model", label: "Fast Model", type: "text" },
+    ],
+  },
+  {
+    label: "Token Limits",
+    fields: [
+      { key: "parse_max_tokens", label: "Parse Max Tokens", type: "number" },
+      { key: "architecture_max_tokens", label: "Architecture Max Tokens", type: "number" },
+      { key: "codegen_max_tokens", label: "Codegen Max Tokens", type: "number" },
+    ],
+  },
+  {
+    label: "Pipeline Tuning",
+    fields: [
+      { key: "large_blueprint_threshold", label: "Large Blueprint Threshold chars", type: "number" },
+      { key: "max_retries", label: "Max Retries", type: "number" },
+      { key: "orphan_timeout_minutes", label: "Orphan Timeout minutes", type: "number" },
+      { key: "quality_score_minimum", label: "Quality Score Minimum", type: "number" },
+    ],
+  },
+  {
+    label: "Notifications",
+    fields: [
+      { key: "cost_alert_threshold_aud", label: "Cost Alert Threshold AUD", type: "number" },
+      { key: "telegram_notify_on_complete", label: "Notify on Complete", type: "checkbox" },
+      { key: "telegram_notify_on_failure", label: "Notify on Failure", type: "checkbox" },
+      { key: "telegram_notify_on_stall", label: "Notify on Stall", type: "checkbox" },
+    ],
+  },
+];
+
+function ConfigurationSection() {
+  const [settings, setSettings] = useState({});
+  const [dirty, setDirty] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getSettings();
+      setSettings(data);
+      setDirty({});
+    } catch (err) {
+      setSaveError(err.message || "Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  function handleChange(key, value) {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setDirty((prev) => ({ ...prev, [key]: value }));
+    setSaveMsg(null);
+    setSaveError(null);
+  }
+
+  async function handleSave() {
+    if (Object.keys(dirty).length === 0) {
+      setSaveMsg("No changes to save.");
+      return;
+    }
+    setSaving(true);
+    setSaveMsg(null);
+    setSaveError(null);
+    try {
+      await saveSettings(dirty);
+      setDirty({});
+      setSaveMsg("Settings saved successfully.");
+    } catch (err) {
+      setSaveError(err.message || "Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="mt-8">
+        <h2 className="text-gray-200 font-semibold text-sm uppercase tracking-wider mb-3">
+          Configuration
+        </h2>
+        <p className="text-gray-600 text-sm">Loading settings...</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-gray-200 font-semibold text-sm uppercase tracking-wider">
+          Configuration
+        </h2>
+        <button
+          onClick={fetchSettings}
+          disabled={loading}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded border border-gray-700 hover:border-gray-600 disabled:opacity-50"
+        >
+          Reset
+        </button>
+      </div>
+
+      <div className="space-y-6">
+        {SETTING_GROUPS.map((group) => (
+          <div key={group.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h3 className="text-gray-400 text-xs uppercase tracking-wider font-semibold mb-4">
+              {group.label}
+            </h3>
+            <div className="space-y-3">
+              {group.fields.map((field) => (
+                <div key={field.key} className="flex items-center justify-between gap-4">
+                  <label className="text-gray-300 text-sm flex-shrink-0 w-48">
+                    {field.label}
+                  </label>
+                  {field.type === "checkbox" ? (
+                    <input
+                      type="checkbox"
+                      checked={settings[field.key] === "true"}
+                      onChange={(e) => handleChange(field.key, e.target.checked ? "true" : "false")}
+                      className="w-4 h-4 accent-purple-500 cursor-pointer"
+                    />
+                  ) : (
+                    <input
+                      type={field.type}
+                      value={settings[field.key] ?? ""}
+                      onChange={(e) => handleChange(field.key, e.target.value)}
+                      className="flex-1 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-purple-600 min-w-0"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-4">
+        <button
+          onClick={handleSave}
+          disabled={saving || Object.keys(dirty).length === 0}
+          className="px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
+        >
+          {saving ? "Saving..." : "Save Settings"}
+        </button>
+        {saveMsg && <p className="text-green-400 text-sm">{saveMsg}</p>}
+        {saveError && <p className="text-red-400 text-sm">{saveError}</p>}
+      </div>
+    </section>
+  );
+}
+
 // ── Main SettingsTab ──────────────────────────────────────────────────────────
 
 export default function SettingsTab({ isActive = true }) {
@@ -237,6 +401,7 @@ export default function SettingsTab({ isActive = true }) {
     <div className="max-w-5xl mx-auto">
       <SystemHealth />
       <WorkerLogs isActive={isActive} />
+      <ConfigurationSection />
     </div>
   );
 }
