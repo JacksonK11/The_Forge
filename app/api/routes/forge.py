@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.main import limiter
+from app.api.ratelimit import limiter
 from memory.database import get_db
 from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync

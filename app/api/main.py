@@ -18,13 +18,13 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from redis import Redis
 from rq import Queue
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.middleware.auth import AuthMiddleware
+from app.api.ratelimit import limiter
 from app.api.routes import forge, runs, templates
 from app.api.routes.chat import router as chat_router
 from app.api.routes.office import router as office_router
@@ -40,11 +40,6 @@ if settings.sentry_dsn:
         environment=settings.app_env,
         traces_sample_rate=0.1,
     )
-
-
-# ── Rate limiter ─────────────────────────────────────────────────────────────
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 # ── Body size limit middleware ─────────────────────────────────────────────────
