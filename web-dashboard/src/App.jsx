@@ -136,6 +136,7 @@ export default function App() {
           <ResultsTab
             initialRunId={resultsRunId}
             onRebuild={goToBuildWithBlueprint}
+            isMobile={isMobile}
           />
         );
       case "files":
@@ -145,7 +146,7 @@ export default function App() {
       case "chat":
         return <ChatTab isMobile={isMobile} />;
       case "overview":
-        return <OverviewTab />;
+        return <OverviewTab isMobile={isMobile} />;
       case "pipeline":
         return <PipelineTab />;
       case "architecture":

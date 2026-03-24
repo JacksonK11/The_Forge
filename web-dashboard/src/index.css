@@ -622,6 +622,28 @@ body {
 /* ── Mobile Full Width Bubbles (Chat) ──────────────────────────────────── */
 
 @media (max-width: 767px) {
+  /* Prevent flex children from overflowing their container */
+  * {
+    min-width: 0;
+  }
+
+  /* Ensure text wraps and doesn't cause horizontal scroll */
+  p, span, div, li, td, th {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Prevent horizontal page scroll */
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  /* Minimum readable font sizes — nothing below 12px */
+  .text-xs { font-size: 12px !important; }
+  .text-\[10px\] { font-size: 12px !important; }
+  .text-\[11px\] { font-size: 12px !important; }
+
   .chat-bubble-mobile {
     max-width: 100% !important;
     width: 100%;
