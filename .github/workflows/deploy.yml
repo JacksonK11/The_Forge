@@ -28,6 +28,27 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Wait for active builds before deploying worker
+        run: |
+          MAX_WAIT=1800
+          ELAPSED=0
+          echo "Checking for active builds before deploying worker..."
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            RESULT=$(curl -sf --max-time 10 "https://the-forge-api.fly.dev/system/active-builds" 2>/dev/null || echo '{"safe_to_deploy":true}')
+            SAFE=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('safe_to_deploy',True) else 'false')" 2>/dev/null || echo "true")
+            COUNT=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('active_builds',0))" 2>/dev/null || echo "0")
+            if [ "$SAFE" = "true" ]; then
+              echo "Safe to deploy (active_builds=$COUNT)"
+              break
+            fi
+            echo "Active builds: $COUNT — waiting 30s (${ELAPSED}s elapsed of ${MAX_WAIT}s max)"
+            sleep 30
+            ELAPSED=$((ELAPSED + 30))
+          done
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "Timeout — proceeding anyway (startup recovery will resume any interrupted builds)"
+          fi
+
       - name: Deploy the-forge-worker
         run: flyctl deploy --app the-forge-worker --config fly.worker.toml --remote-only
         env:

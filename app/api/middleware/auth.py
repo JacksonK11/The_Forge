@@ -17,6 +17,7 @@ EXEMPT_PATHS = {
     "/docs",
     "/redoc",
     "/openapi.json",
+    "/system/active-builds",  # CI polling — no secret needed
 }
 
 

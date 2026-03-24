@@ -97,6 +97,102 @@ def _start_scheduler_thread() -> threading.Thread:
     return t
 
 
+# ── Startup recovery ─────────────────────────────────────────────────────────
+
+
+async def _recover_in_progress_builds(redis_conn: Redis) -> None:
+    """
+    On worker boot: immediately re-queue any builds that were interrupted
+    mid-run (e.g. by a worker redeploy). Runs synchronously before the RQ
+    worker starts listening, so interrupted builds resume within seconds.
+    """
+    from memory.database import get_session
+    from memory.models import ForgeRun, RunStatus
+    from pipeline.pipeline import run_pipeline_sync
+    from rq.worker import Worker as RQWorker
+    from sqlalchemy import select
+
+    active_statuses = (
+        RunStatus.GENERATING.value,
+        RunStatus.ARCHITECTING.value,
+        RunStatus.PACKAGING.value,
+    )
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ForgeRun).where(ForgeRun.status.in_(active_statuses))
+            )
+            active_runs = result.scalars().all()
+    except Exception as exc:
+        logger.error(f"Startup recovery: DB query failed: {exc}")
+        return
+
+    if not active_runs:
+        logger.info("Startup recovery: no interrupted builds found")
+        return
+
+    queue = Queue("forge-builds", connection=redis_conn)
+
+    # Collect job IDs already in queue or currently running
+    running_job_ids: set[str] = set()
+    try:
+        for w in RQWorker.all(connection=redis_conn):
+            cj = w.get_current_job_id()
+            if cj:
+                running_job_ids.add(cj)
+    except Exception:
+        pass
+    existing_job_ids = {j.id for j in queue.jobs} | running_job_ids
+
+    recovered = 0
+    for run in active_runs:
+        run_id = run.run_id
+        run_prefix = f"build-{run_id}"
+
+        if any(jid.startswith(run_prefix) for jid in existing_job_ids):
+            logger.info(f"[{run_id}] Startup recovery: already queued/running — skipping")
+            continue
+
+        resume_from: str
+        if run.status == RunStatus.PACKAGING.value:
+            resume_from = "packaging"
+        elif run.status == RunStatus.ARCHITECTING.value or not run.manifest_json:
+            resume_from = "resume_from_architecture"
+        else:
+            resume_from = "generating"
+
+        job_id = f"build-{run_id}-recovery"
+        queue.enqueue(
+            run_pipeline_sync,
+            run_id,
+            resume_from,
+            job_id=job_id,
+            job_timeout=7200,
+        )
+        logger.info(
+            f"[{run_id}] Startup recovery: re-queued '{run.title}' "
+            f"status={run.status} files={run.files_complete} resume_from={resume_from}"
+        )
+
+        try:
+            from app.api.services.notify import _send
+            await _send(
+                f"<b>The Forge — Build Recovered on Restart</b>\n\n"
+                f"<b>{run.title}</b>\n"
+                f"Worker restarted while build was in progress.\n"
+                f"Status: <code>{run.status}</code> · Files done: <b>{run.files_complete}</b>\n"
+                f"Auto-resuming from <code>{resume_from}</code>."
+            )
+        except Exception:
+            pass
+
+        recovered += 1
+
+    if recovered > 0:
+        logger.info(f"Startup recovery: {recovered} build(s) re-queued for resumption")
+
+
 # ── Orphan build detector ─────────────────────────────────────────────────────
 
 
@@ -380,6 +476,9 @@ def main() -> None:
     except Exception as exc:
         logger.error(f"Redis connection failed: {exc}")
         sys.exit(1)
+
+    # Recover any builds that were interrupted by a previous deploy/restart
+    asyncio.run(_recover_in_progress_builds(redis_conn))
 
     # Start background threads (scheduler merged into worker process)
     _start_scheduler_thread()
