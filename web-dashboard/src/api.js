@@ -188,6 +188,16 @@ export async function getAgents() {
   return request("GET", "/forge/agents");
 }
 
+// ─── Deploy Status & Secrets ──────────────────────────────────────────────────
+
+export async function getDeployStatus(runId) {
+  return request("GET", `/forge/runs/${runId}/deploy-status`);
+}
+
+export async function setRunSecrets(runId, secrets) {
+  return request("POST", `/forge/runs/${runId}/set-secrets`, { secrets });
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
 export async function sendChatMessage(messages, memoryNotes, filesContext) {

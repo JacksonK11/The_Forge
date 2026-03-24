@@ -368,6 +368,16 @@ export default function OverviewTab({ isMobile = false }) {
                       {agent.api_url}
                     </a>
                   )}
+                  {agent.dashboard_url && (
+                    <a
+                      href={agent.dashboard_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`text-purple-500 hover:text-purple-400 font-mono mt-0.5 block transition-colors truncate ${isMobile ? "text-sm" : "text-xs"}`}
+                    >
+                      {agent.dashboard_url}
+                    </a>
+                  )}
                 </div>
                 <div className={`flex items-center gap-2 flex-shrink-0 ${isMobile ? "min-h-[44px] pl-3" : ""}`}>
                   <StatusDot status={agent.health_status || "online"} />

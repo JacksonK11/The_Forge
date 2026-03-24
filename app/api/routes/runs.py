@@ -21,7 +21,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory.database import get_db
-from memory.models import BuildCost, BuildLog, BuildVersion, ForgeFile, ForgeRun
+from memory.models import AgentRegistry, BuildCost, BuildLog, BuildVersion, ForgeFile, ForgeRun
 
 router = APIRouter()
 
@@ -564,6 +564,181 @@ async def resume_run(
 
     logger.info(f"[{run_id}] Manual resume queued: resume_from={resume_from}")
     return {"status": "queued", "resume_from": resume_from}
+
+
+@router.get("/{run_id}/deploy-status")
+async def get_deploy_status(
+    run_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Return deployment status for a run.
+
+    Reads:
+    - The run's spec_json for agent_slug
+    - agents_registry for matching API / dashboard URLs and health status
+    - The most recent auto_deploy build log entry for detailed results
+
+    Returns a structured JSON suitable for the deployment wizard in the dashboard.
+    """
+    result = await session.execute(
+        select(ForgeRun).where(ForgeRun.run_id == run_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Derive agent slug from spec_json
+    agent_slug: Optional[str] = None
+    if run.spec_json and isinstance(run.spec_json, dict):
+        agent_slug = run.spec_json.get("agent_slug") or run.spec_json.get("name")
+
+    # Fall back to repo_name
+    if not agent_slug and run.repo_name:
+        agent_slug = run.repo_name
+
+    # Fetch registered agents whose api_url contains the slug
+    registered_apps: list[dict] = []
+    if agent_slug:
+        registry_result = await session.execute(
+            select(AgentRegistry).where(
+                AgentRegistry.api_url.ilike(f"%{agent_slug}%")
+            )
+        )
+        registry_entries = registry_result.scalars().all()
+        for entry in registry_entries:
+            registered_apps.append({
+                "agent_name": entry.agent_name,
+                "api_url": entry.api_url,
+                "dashboard_url": entry.dashboard_url,
+                "health_url": entry.health_url,
+                "health_status": entry.health_status,
+                "repo_url": entry.repo_url,
+                "registered_at": entry.registered_at.isoformat() if entry.registered_at else None,
+            })
+
+    # Fetch the most recent auto_deploy build log for raw deploy details
+    log_result = await session.execute(
+        select(BuildLog)
+        .where(BuildLog.run_id == run_id, BuildLog.stage == "auto_deploy")
+        .order_by(BuildLog.created_at.desc())
+        .limit(1)
+    )
+    deploy_log = log_result.scalar_one_or_none()
+    deploy_details: Optional[dict] = deploy_log.details_json if deploy_log else None
+
+    manual_secrets_needed: list[str] = []
+    if deploy_details and isinstance(deploy_details, dict):
+        manual_secrets_needed = deploy_details.get("manual_secrets_needed", [])
+
+    return {
+        "run_id": run_id,
+        "agent_slug": agent_slug,
+        "github_repo_url": run.github_repo_url,
+        "github_push_status": run.github_push_status,
+        "registered_apps": registered_apps,
+        "manual_secrets_needed": manual_secrets_needed,
+        "deploy_details": deploy_details,
+        "has_deployment": len(registered_apps) > 0,
+        "needs_manual_secrets": len(manual_secrets_needed) > 0,
+    }
+
+
+class SetSecretsRequest(BaseModel):
+    secrets: dict[str, str]
+
+
+@router.post("/{run_id}/set-secrets")
+async def set_run_secrets(
+    run_id: str,
+    body: SetSecretsRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Set secrets on the Fly.io apps associated with this run.
+
+    For each registered app tied to this run's agent_slug, calls the Fly API
+    to set the provided secrets. Returns {"set": [...], "failed": [...]}.
+
+    Requires fly_api_token to be configured in settings.
+    """
+    from config.settings import settings
+
+    if not settings.fly_api_token:
+        raise HTTPException(status_code=400, detail="fly_api_token not configured")
+
+    if not body.secrets:
+        raise HTTPException(status_code=400, detail="No secrets provided")
+
+    result = await session.execute(
+        select(ForgeRun).where(ForgeRun.run_id == run_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Determine agent slug
+    agent_slug: Optional[str] = None
+    if run.spec_json and isinstance(run.spec_json, dict):
+        agent_slug = run.spec_json.get("agent_slug") or run.spec_json.get("name")
+    if not agent_slug and run.repo_name:
+        agent_slug = run.repo_name
+
+    if not agent_slug:
+        raise HTTPException(status_code=400, detail="Cannot determine agent slug for this run")
+
+    # Fetch registered apps
+    registry_result = await session.execute(
+        select(AgentRegistry).where(
+            AgentRegistry.api_url.ilike(f"%{agent_slug}%")
+        )
+    )
+    registry_entries = registry_result.scalars().all()
+
+    if not registry_entries:
+        raise HTTPException(status_code=404, detail="No registered apps found for this run")
+
+    import httpx as _httpx
+
+    FLY_API_BASE = "https://api.machines.dev"
+    token = settings.fly_api_token
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    set_keys: list[str] = []
+    failed_keys: list[str] = []
+
+    for entry in registry_entries:
+        # Extract app_name from api_url: https://{app_name}.fly.dev
+        import re as _re
+        m = _re.search(r"https?://([^.]+)\.fly\.dev", entry.api_url)
+        if not m:
+            logger.warning(f"Could not parse app_name from url: {entry.api_url}")
+            continue
+        app_name = m.group(1)
+
+        try:
+            async with _httpx.AsyncClient(timeout=30.0) as client:
+                payload = [{"key": k, "value": v} for k, v in body.secrets.items()]
+                resp = await client.post(
+                    f"{FLY_API_BASE}/v1/apps/{app_name}/secrets",
+                    headers=headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+            set_keys.extend(list(body.secrets.keys()))
+            logger.info(f"[set-secrets] Set {len(body.secrets)} secrets on {app_name}")
+        except Exception as exc:
+            failed_keys.extend(list(body.secrets.keys()))
+            logger.error(f"[set-secrets] Failed to set secrets on {app_name}: {exc}")
+
+    return {
+        "run_id": run_id,
+        "set": list(set(set_keys)),
+        "failed": list(set(failed_keys)),
+    }
 
 
 @router.post("/{run_id}/force-fail")

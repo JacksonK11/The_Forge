@@ -163,7 +163,18 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
     from pipeline.nodes.github_push_node import github_push_node
     state = await github_push_node(state)
 
-    # ── Stage 7: Deploy verification and auto-fix (optional) ─────────────────
+    # ── Stage 7: Auto-deploy to Fly.io (optional, never blocks completion) ───
+    try:
+        from config.settings import settings as _settings
+        if _settings.fly_api_token:
+            from pipeline.nodes.auto_deploy_node import auto_deploy_node
+            state = await auto_deploy_node(state)
+        else:
+            logger.debug("Auto-deploy skipped: fly_api_token not configured")
+    except Exception as _deploy_exc:
+        logger.error(f"Auto-deploy node raised unexpectedly (non-blocking): {_deploy_exc}")
+
+    # ── Stage 8: Deploy verification and auto-fix (optional) ─────────────────
     from pipeline.nodes.deploy_verify_fix_node import deploy_verify_fix_node
     state = await deploy_verify_fix_node(state)
 

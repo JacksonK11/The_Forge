@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from "react";
-import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload, resumeRun, forceFailRun } from "../api.js";
+import { getRun, getRuns, getRunFiles, getRunPackageBlob, registerAgent, triggerDownload, resumeRun, forceFailRun, getDeployStatus, setRunSecrets } from "../api.js";
 import { BASE_URL } from "../api.js";
 
 const LAYER_LABELS = {
@@ -69,6 +69,141 @@ function groupFilesByLayer(files) {
     groups[layer].push(f);
   }
   return groups;
+}
+
+function DeploymentPanel({ run, isMobile = false }) {
+  const [deployStatus, setDeployStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [secretInputs, setSecretInputs] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState("");
+
+  const runId = run?.id || run?.run_id;
+
+  useEffect(() => {
+    if (!runId) return;
+    setLoading(true);
+    getDeployStatus(runId)
+      .then((data) => setDeployStatus(data))
+      .catch(() => setDeployStatus(null))
+      .finally(() => setLoading(false));
+  }, [runId]);
+
+  if (loading) return null;
+  if (!deployStatus) return null;
+
+  const { registered_apps = [], manual_secrets_needed = [], has_deployment } = deployStatus;
+
+  // Nothing to show if no deployment and no secrets needed
+  if (!has_deployment && manual_secrets_needed.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-5">
+        <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Deployment</p>
+        <p className="text-gray-600 text-xs">Auto-deploy not configured</p>
+      </div>
+    );
+  }
+
+  async function handleSetSecrets() {
+    setSubmitting(true);
+    setSubmitMsg("");
+    try {
+      const result = await setRunSecrets(runId, secretInputs);
+      const setCount = result.set?.length || 0;
+      const failCount = result.failed?.length || 0;
+      setSubmitMsg(
+        failCount === 0
+          ? `${setCount} secret(s) set successfully.`
+          : `${setCount} set, ${failCount} failed.`
+      );
+    } catch (err) {
+      setSubmitMsg(`Failed: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-5">
+      <p className="text-gray-500 text-xs uppercase tracking-wider mb-3">Deployment</p>
+
+      {/* Deployed apps */}
+      {registered_apps.map((app, i) => (
+        <div key={i} className="mb-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+            <span className="text-green-400 text-xs font-medium">Deployed</span>
+            <span className="text-gray-500 text-xs font-mono truncate">{app.agent_name}</span>
+          </div>
+          <div className="flex flex-col gap-1.5 pl-4">
+            {app.api_url && (
+              <div className={`flex items-center gap-2 ${isMobile ? "min-h-[36px]" : ""}`}>
+                <span className="text-gray-500 text-xs w-16 flex-shrink-0">API</span>
+                <a
+                  href={app.api_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-400 hover:text-cyan-300 text-xs font-mono truncate transition-colors"
+                >
+                  {app.api_url}
+                </a>
+              </div>
+            )}
+            {app.dashboard_url && (
+              <div className={`flex items-center gap-2 ${isMobile ? "min-h-[36px]" : ""}`}>
+                <span className="text-gray-500 text-xs w-16 flex-shrink-0">Dashboard</span>
+                <a
+                  href={app.dashboard_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-400 hover:text-purple-300 text-xs font-mono truncate transition-colors"
+                >
+                  {app.dashboard_url}
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Manual secrets form */}
+      {manual_secrets_needed.length > 0 && (
+        <div className="mt-3 border-t border-gray-800 pt-3">
+          <p className="text-amber-400 text-xs font-medium mb-2">
+            {manual_secrets_needed.length} secret(s) require manual input
+          </p>
+          <div className="flex flex-col gap-2 mb-3">
+            {manual_secrets_needed.map((key) => (
+              <div key={key} className="flex flex-col gap-1">
+                <label className="text-gray-400 text-xs font-mono">{key}</label>
+                <input
+                  type="password"
+                  placeholder={`Enter ${key}`}
+                  value={secretInputs[key] || ""}
+                  onChange={(e) =>
+                    setSecretInputs((prev) => ({ ...prev, [key]: e.target.value }))
+                  }
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-200 text-xs font-mono placeholder-gray-600 focus:outline-none focus:border-amber-600 transition-colors"
+                />
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={handleSetSecrets}
+            disabled={submitting || Object.keys(secretInputs).length === 0}
+            className={`w-full py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 ${
+              isMobile ? "min-h-[44px]" : ""
+            } bg-amber-700 hover:bg-amber-600 text-white`}
+          >
+            {submitting ? "Setting secrets..." : "Set & Deploy"}
+          </button>
+          {submitMsg && (
+            <p className="text-xs mt-2 text-teal-300">{submitMsg}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }) {
@@ -365,6 +500,10 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
             <p className="text-sm text-teal-300 bg-teal-950/30 border border-teal-900 rounded-lg px-3 py-2 mb-4">
               {registerMsg}
             </p>
+          )}
+
+          {selectedRun.status === "complete" && (
+            <DeploymentPanel run={selectedRun} isMobile={true} />
           )}
 
           {loadingDetail && (
@@ -759,6 +898,10 @@ export default function ResultsTab({ initialRunId, onRebuild, isMobile = false }
               <p className="text-sm text-teal-300 bg-teal-950/30 border border-teal-900 rounded-lg px-3 py-2 mb-4">
                 {registerMsg}
               </p>
+            )}
+
+            {selectedRun.status === "complete" && (
+              <DeploymentPanel run={selectedRun} isMobile={false} />
             )}
 
             {/* Error banner — desktop */}
