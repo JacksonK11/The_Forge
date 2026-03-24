@@ -49,6 +49,19 @@ export async function getHealth() {
   return request("GET", "/health");
 }
 
+export async function getDetailedHealth() {
+  return request("GET", "/system/health/detailed");
+}
+
+export async function getRecentLogs({ limit = 100, level = "", module = "", run_id = "" } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (level) params.set("level", level);
+  if (module) params.set("module", module);
+  if (run_id) params.set("run_id", run_id);
+  return request("GET", `/system/logs/recent?${params.toString()}`);
+}
+
 // ─── Templates ────────────────────────────────────────────────────────────────
 
 export async function getTemplates() {

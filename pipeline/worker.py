@@ -97,6 +97,33 @@ def _start_scheduler_thread() -> threading.Thread:
     return t
 
 
+# ── Redis log sink ────────────────────────────────────────────────────────────
+
+
+def _make_redis_log_sink(redis_conn):
+    import json
+    import re
+    UUID_RE = re.compile(r'\[([0-9a-f]{8}-[0-9a-f\-]{27,35})\]')
+
+    def sink(message):
+        try:
+            record = message.record
+            run_id_match = UUID_RE.search(record["message"])
+            entry = json.dumps({
+                "timestamp": record["time"].isoformat(),
+                "level": record["level"].name,
+                "module": record["name"],
+                "message": record["message"],
+                "run_id": run_id_match.group(1) if run_id_match else None,
+            })
+            redis_conn.lpush("forge-worker-logs", entry)
+            redis_conn.ltrim("forge-worker-logs", 0, 999)
+        except Exception:
+            pass
+
+    return sink
+
+
 # ── Startup recovery ─────────────────────────────────────────────────────────
 
 
@@ -476,6 +503,9 @@ def main() -> None:
     except Exception as exc:
         logger.error(f"Redis connection failed: {exc}")
         sys.exit(1)
+
+    # Add Redis log sink so every log line is available via /system/logs/recent
+    logger.add(_make_redis_log_sink(redis_conn), level="DEBUG")
 
     # Recover any builds that were interrupted by a previous deploy/restart
     asyncio.run(_recover_in_progress_builds(redis_conn))
