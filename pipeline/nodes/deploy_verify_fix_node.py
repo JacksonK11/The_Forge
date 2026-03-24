@@ -310,8 +310,19 @@ async def deploy_verify_fix_node(state: "PipelineState") -> "PipelineState":
             break
 
         else:
+            # Max attempts exhausted — automated rollback
             logger.warning(
-                f"[{state.run_id}] Max verify attempts ({max_attempts}) exhausted"
+                f"[{state.run_id}] Max verify attempts ({max_attempts}) exhausted — "
+                f"attempting automated rollback"
+            )
+            errors_summary = "; ".join(
+                h.get("error_found", "unknown") for h in fix_history if h.get("error_found")
+            )
+            await _automated_rollback(
+                state=state,
+                slug=slug,
+                errors_summary=errors_summary,
+                fix_history=fix_history,
             )
 
     except Exception as exc:
@@ -1043,6 +1054,103 @@ async def _store_fixes_in_kb(
                 session.add(record)
     except Exception as exc:
         logger.error(f"_store_fixes_in_kb failed: {exc}")
+
+
+# ── Automated rollback ────────────────────────────────────────────────────────
+
+
+async def _automated_rollback(
+    state: "PipelineState",
+    slug: str,
+    errors_summary: str,
+    fix_history: list[dict],
+) -> None:
+    """
+    After MAX_DEPLOY_FIX_ATTEMPTS all fail, automatically roll back the generated
+    agent to the last known-working GitHub commit by force-pushing the previous
+    commit SHA. Sends Telegram with full context of what failed and what was tried.
+
+    Never raises — all errors are logged.
+    """
+    logger.warning(
+        f"[{state.run_id}] Initiating automated rollback for {slug}"
+    )
+
+    rollback_success = False
+    rolled_back_sha = None
+
+    try:
+        if settings.github_token and state.github_repo_url:
+            from github import Github
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            g = Github(settings.github_token)
+
+            # Extract owner/repo from URL
+            parts = state.github_repo_url.rstrip("/").split("/")
+            if len(parts) >= 2:
+                owner, repo_name = parts[-2], parts[-1]
+                repo = await loop.run_in_executor(
+                    None, lambda: g.get_repo(f"{owner}/{repo_name}")
+                )
+                # Get the last 3 commits to find the one before this build
+                commits = await loop.run_in_executor(
+                    None, lambda: list(repo.get_commits()[:3])
+                )
+                if len(commits) >= 2:
+                    previous_sha = commits[1].sha  # Second commit = before this build
+                    # Reset main branch to previous commit
+                    main_ref = await loop.run_in_executor(
+                        None, lambda: repo.get_git_ref("heads/main")
+                    )
+                    await loop.run_in_executor(
+                        None, lambda: main_ref.edit(sha=previous_sha, force=True)
+                    )
+                    rolled_back_sha = previous_sha[:7]
+                    rollback_success = True
+                    logger.info(
+                        f"[{state.run_id}] Rolled back {slug} to {previous_sha[:7]}"
+                    )
+    except Exception as exc:
+        logger.error(
+            f"[{state.run_id}] Automated rollback failed: {exc}"
+        )
+
+    # Build error details for Telegram
+    error_lines = []
+    for i, h in enumerate(fix_history, 1):
+        err = h.get("error_found", "unknown")
+        fix = h.get("fix_applied", "none")
+        result = h.get("result", "")
+        error_lines.append(f"  Attempt {i}: {err[:100]} → fix: {fix[:80]} [{result}]")
+
+    fix_text = "\n".join(error_lines) if error_lines else "  No fixes attempted"
+
+    if rollback_success:
+        msg = (
+            f"🔄 <b>The Forge — Deploy Failed: Rolled Back</b>\n\n"
+            f"<b>{state.title}</b> (<code>{slug}</code>)\n\n"
+            f"<b>Deploy failed after {len(fix_history)} fix attempts.</b>\n"
+            f"Automatically rolled back to previous working version: "
+            f"<code>{rolled_back_sha}</code>\n\n"
+            f"<b>Errors encountered:</b>\n{fix_text}\n\n"
+            f"Primary error: {errors_summary[:300]}"
+        )
+    else:
+        msg = (
+            f"🚨 <b>The Forge — Deploy Failed: Manual Review Required</b>\n\n"
+            f"<b>{state.title}</b> (<code>{slug}</code>)\n\n"
+            f"<b>Deploy failed after {len(fix_history)} fix attempts.</b>\n"
+            f"Automated rollback was not possible (no previous commit or GitHub token issue).\n\n"
+            f"<b>What works:</b> ZIP package is available for download.\n"
+            f"<b>What doesn't:</b> Live Fly.io deploy is unhealthy.\n\n"
+            f"<b>Errors encountered:</b>\n{fix_text}\n\n"
+            f"Primary error: {errors_summary[:300]}\n\n"
+            f"<b>Next steps:</b> Download ZIP, fix manually, push to GitHub to trigger redeploy."
+        )
+
+    await _notify(msg)
 
 
 # ── Final report ──────────────────────────────────────────────────────────────

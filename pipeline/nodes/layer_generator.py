@@ -4,13 +4,19 @@ Individual file code generator with evaluator loop.
 
 For each file:
   1. Assemble context: meta-rules + knowledge base + previous files
-  2. Call Claude Sonnet to generate the file
-  3. Run Evaluator on the output
-  4. If evaluation fails, regenerate (up to 3 attempts total)
-  5. Return final content or None if all attempts fail
+  2. Call Claude Sonnet to generate the file (max_tokens=64000)
+  3. Detect truncation — if file ends mid-function or has unclosed braces, regenerate
+  4. Run Evaluator on the output
+  5. If evaluation fails, regenerate (up to 3 attempts total)
+  6. Return final content or None if all attempts fail
 
 Also handles special files (requirements.txt, __init__.py, etc.) that have
 deterministic content and don't need LLM generation.
+
+Model routing (Part E):
+  Code generation → claude-sonnet-4-6 (settings.claude_model)
+  Evaluation → claude-haiku-4-5-20251001 (settings.claude_fast_model)
+  All calls logged via config.model_config.router for cost tracking.
 """
 
 import json
@@ -20,18 +26,20 @@ import anthropic
 from loguru import logger
 
 from app.api.services.retry import retry_async
+from config.model_config import router as model_router
 from config.settings import settings
 from memory.models import FileStatus, ForgeFile
 from pipeline.prompts.prompts import (
     CODEGEN_SYSTEM,
     EVALUATOR_SYSTEM,
-    EVALUATOR_USER,
     build_codegen_prompt,
+    build_evaluator_prompt,
 )
 
 client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 MAX_ATTEMPTS = 3
+MAX_TOKENS = 64000
 
 # Files that are deterministic — skip LLM generation
 TRIVIAL_FILES = {
@@ -57,6 +65,7 @@ async def generate_file_for_layer(
     """
     Generate a single file. Returns content string on success, None on failure.
     Runs evaluator after generation and regenerates if evaluation fails.
+    Detects truncation and regenerates with explicit continuation instruction.
     """
     file_path = file_entry["path"]
     layer = file_entry.get("layer", 1)
@@ -96,10 +105,14 @@ async def generate_file_for_layer(
                 knowledge_context=knowledge_context,
             )
 
-            content = await retry_async(
+            content, was_truncated = await retry_async(
                 _generate_file_content,
                 prompt,
-                max_attempts=2,
+                file_path=file_path,
+                run_id=run_id,
+                max_attempts=3,
+                base_delay=5.0,
+                max_delay=60.0,
                 label=f"generate:{file_path}",
             )
 
@@ -107,8 +120,27 @@ async def generate_file_for_layer(
                 logger.warning(f"[{run_id}] Empty content for {file_path} attempt {attempt}")
                 continue
 
+            # ── Truncation detection ─────────────────────────────────────────
+            if was_truncated:
+                logger.warning(
+                    f"[{run_id}] Truncation detected for {file_path} attempt {attempt} — regenerating"
+                )
+                extra_context += (
+                    "\n\nPREVIOUS ATTEMPT WAS TRUNCATED — the output ended before the file was complete. "
+                    "Generate the COMPLETE file from the beginning. Do not truncate. "
+                    "If the file is very large, prioritise completeness over comments.\n"
+                )
+                if attempt < MAX_ATTEMPTS:
+                    last_evaluation = None
+                    continue
+                # On last attempt use the truncated content rather than returning None
+                logger.error(
+                    f"[{run_id}] {file_path} still truncated after {attempt} attempts — using partial content"
+                )
+                return content
+
             # ── Evaluator check ───────────────────────────────────────────────
-            evaluation = await _evaluate_file(file_path, purpose, content)
+            evaluation = await _evaluate_file(file_path, purpose, content, run_id)
             if evaluation.get("passed", True):
                 logger.debug(f"[{run_id}] Generated and evaluated: {file_path} (attempt {attempt})")
                 return content
@@ -159,7 +191,6 @@ async def generate_single_file(run_id: str, file_path: str) -> None:
 
     # Load all existing generated files for context
     async with get_session() as session:
-        from sqlalchemy import select
         result = await session.execute(
             select(ForgeFile).where(
                 ForgeFile.run_id == run_id,
@@ -194,20 +225,66 @@ async def generate_single_file(run_id: str, file_path: str) -> None:
         logger.error(f"[{run_id}] Regeneration failed: {file_path}")
 
 
-async def _generate_file_content(prompt: str) -> str:
-    """Call Claude Sonnet to generate file content."""
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=64000,
-        system=CODEGEN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    if response.stop_reason == "max_tokens":
-        logger.warning(
-            f"Generation hit max_tokens limit — file may be truncated. "
-            f"Consider splitting into smaller modules."
+async def _generate_file_content(
+    prompt: str,
+    *,
+    file_path: str = "",
+    run_id: str = "",
+) -> tuple[str, bool]:
+    """
+    Call Claude Sonnet to generate file content.
+    Returns (content, was_truncated).
+    Logs model + token usage via model_router for cost tracking.
+    Handles context-too-long errors by trimming previous_files context.
+    """
+    model = settings.claude_model
+    logger.debug(f"[{run_id}] Calling {model} for {file_path or 'file generation'}")
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            system=CODEGEN_SYSTEM,
+            messages=[{"role": "user", "content": prompt}],
         )
+    except anthropic.BadRequestError as exc:
+        # Context too long — trim prompt to just spec + file entry (no previous files)
+        if "context_length_exceeded" in str(exc) or "too long" in str(exc).lower():
+            logger.warning(
+                f"[{run_id}] Context too long for {file_path} — retrying with trimmed prompt"
+            )
+            trimmed_prompt = _trim_prompt_to_fit(prompt)
+            response = client.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS,
+                system=CODEGEN_SYSTEM,
+                messages=[{"role": "user", "content": trimmed_prompt}],
+            )
+        else:
+            raise
+
+    # Record usage for cost tracking
+    if hasattr(response, "usage"):
+        cost_usd = model_router.record_usage(
+            model=model,
+            task_type="generation",
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+        )
+        logger.debug(
+            f"[{run_id}] {model} generation: "
+            f"in={response.usage.input_tokens} out={response.usage.output_tokens} "
+            f"cost_usd={cost_usd:.4f}"
+        )
+
+    was_truncated = response.stop_reason == "max_tokens"
+    if was_truncated:
+        logger.warning(
+            f"[{run_id}] Generation hit max_tokens ({MAX_TOKENS}) for {file_path} — truncation detected"
+        )
+
     content = response.content[0].text.strip()
+
     # Strip markdown fences if model adds them despite instructions
     if content.startswith("```"):
         lines = content.split("\n")
@@ -216,26 +293,117 @@ async def _generate_file_content(prompt: str) -> str:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         content = "\n".join(lines)
-    return content
+
+    # Additional truncation heuristics — check for obviously incomplete code
+    if not was_truncated:
+        was_truncated = _detect_truncation(content, file_path)
+
+    return content, was_truncated
 
 
-async def _evaluate_file(file_path: str, purpose: str, content: str) -> dict:
+def _detect_truncation(content: str, file_path: str) -> bool:
+    """
+    Heuristic truncation detection for generated code files.
+    Returns True if the content appears to be cut off mid-generation.
+    """
+    if not content or len(content) < 100:
+        return False
+
+    # Only apply heuristics to code files
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    if ext not in ("py", "ts", "tsx", "js", "jsx", "go", "rs", "java", "cs"):
+        return False
+
+    stripped = content.rstrip()
+
+    # Python: ends mid-function (last non-empty line is not a closing statement)
+    if ext == "py":
+        lines = [l for l in stripped.splitlines() if l.strip()]
+        if not lines:
+            return False
+        last = lines[-1].strip()
+        # Ends with a colon = open block, comma = mid-dict/list, backslash = continuation
+        if last.endswith(":") or last.endswith(",") or last.endswith("\\"):
+            return True
+        # Ends with an opening paren/bracket
+        if last.endswith("(") or last.endswith("[") or last.endswith("{"):
+            return True
+        # Unclosed parentheses/brackets/braces
+        open_count = content.count("(") - content.count(")")
+        brace_count = content.count("{") - content.count("}")
+        bracket_count = content.count("[") - content.count("]")
+        if open_count > 2 or brace_count > 2 or bracket_count > 2:
+            return True
+
+    # JS/TS: unclosed braces suggest cut-off
+    if ext in ("ts", "tsx", "js", "jsx"):
+        brace_count = content.count("{") - content.count("}")
+        if brace_count > 3:
+            return True
+
+    return False
+
+
+def _trim_prompt_to_fit(prompt: str) -> str:
+    """
+    Trim a too-long prompt by removing the previous_files section.
+    Keeps spec + file_path + purpose + meta_rules but drops prior file contents.
+    """
+    # Find and remove the PREVIOUSLY GENERATED FILES section
+    previous_files_marker = "PREVIOUSLY GENERATED FILES"
+    if previous_files_marker in prompt:
+        idx = prompt.index(previous_files_marker)
+        # Find where the next major section starts after the files block
+        next_section = prompt.find("\n\nGENERATE FILE:", idx)
+        if next_section == -1:
+            next_section = prompt.find("\n\nNOW GENERATE:", idx)
+        if next_section == -1:
+            # Just cut the files section entirely
+            trimmed = prompt[:idx] + "\n\n[Previous files omitted due to context length — generate this file independently]\n\n"
+            # Re-append the final instruction if present
+            return trimmed
+        trimmed = (
+            prompt[:idx]
+            + "[Previous files omitted to reduce context length — generate this file independently]\n"
+            + prompt[next_section:]
+        )
+        logger.info(
+            f"Trimmed prompt from {len(prompt)} to {len(trimmed)} chars "
+            f"by removing previous_files section"
+        )
+        return trimmed
+    return prompt
+
+
+async def _evaluate_file(file_path: str, purpose: str, content: str, run_id: str = "") -> dict:
     """
     Run the evaluator on a generated file.
     Returns evaluation dict with 'passed' bool and 'issues' list.
+    Uses Haiku for cost efficiency.
     """
     try:
-        prompt = EVALUATOR_USER.format(
-            file_path=file_path,
-            purpose=purpose,
-            content=content[:30000],
-        )
+        model = settings.claude_fast_model
+        prompt = build_evaluator_prompt(file_path, purpose, content)
         response = client.messages.create(
-            model=settings.claude_fast_model,
+            model=model,
             max_tokens=1024,
             system=EVALUATOR_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
+
+        # Log Haiku usage
+        if hasattr(response, "usage"):
+            model_router.record_usage(
+                model=model,
+                task_type="evaluation",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
+            logger.debug(
+                f"[{run_id}] {model} evaluation for {file_path}: "
+                f"in={response.usage.input_tokens} out={response.usage.output_tokens}"
+            )
+
         text = response.content[0].text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]

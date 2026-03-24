@@ -2,19 +2,27 @@
 app/api/main.py
 FastAPI application entry point for The Forge API server.
 
-Startup: initializes DB, seeds templates, connects to Redis.
+Startup: validates critical secrets, initializes DB, seeds templates, connects to Redis.
 Routes: /forge (blueprint submission), /runs (status/files), /templates, /health.
+Body limit: 10MB (supports large blueprints with attached code files).
+Rate limiting: 60 req/min per IP, 10 build submissions per hour.
 """
 
 import os
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 from redis import Redis
 from rq import Queue
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.middleware.auth import AuthMiddleware
 from app.api.routes import forge, runs, templates
@@ -34,10 +42,91 @@ if settings.sentry_dsn:
     )
 
 
+# ── Rate limiter ─────────────────────────────────────────────────────────────
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
+
+# ── Body size limit middleware ─────────────────────────────────────────────────
+
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject requests with bodies larger than 10MB to protect against abuse."""
+
+    MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_BODY_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": f"Request body too large. Maximum is {self.MAX_BODY_SIZE // 1024 // 1024}MB."
+                },
+            )
+        return await call_next(request)
+
+
 # ── Redis / RQ ───────────────────────────────────────────────────────────────
 
 redis_conn = Redis.from_url(settings.redis_url)
 build_queue = Queue("forge-builds", connection=redis_conn)
+
+
+# ── Startup secret validation ──────────────────────────────────────────────────
+
+
+def _validate_critical_secrets() -> None:
+    """
+    Verify all critical secrets are set before accepting traffic.
+    Logs warnings for optional secrets and raises on critical missing ones.
+    """
+    critical = {
+        "API_SECRET_KEY": settings.api_secret_key,
+        "DATABASE_URL": settings.database_url,
+        "REDIS_URL": settings.redis_url,
+        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "TELEGRAM_BOT_TOKEN": settings.telegram_bot_token,
+        "TELEGRAM_CHAT_ID": settings.telegram_chat_id,
+    }
+    optional = {
+        "GITHUB_TOKEN": settings.github_token,
+        "FLY_API_TOKEN": settings.fly_api_token,
+        "TAVILY_API_KEY": settings.tavily_api_key,
+        "SENTRY_DSN": settings.sentry_dsn,
+    }
+
+    missing_critical = [k for k, v in critical.items() if not v]
+    if missing_critical:
+        msg = f"CRITICAL: Missing required secrets: {', '.join(missing_critical)}. Startup aborted."
+        logger.error(msg)
+
+        # Try to send Telegram alert even though we're about to crash
+        try:
+            import asyncio
+            import httpx
+            bot_token = settings.telegram_bot_token
+            chat_id = settings.telegram_chat_id
+            if bot_token and chat_id:
+                asyncio.run(
+                    httpx.AsyncClient().post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": chat_id, "text": f"🚨 The Forge API startup FAILED\n\n{msg}"},
+                        timeout=5,
+                    )
+                )
+        except Exception:
+            pass
+        raise RuntimeError(msg)
+
+    missing_optional = [k for k, v in optional.items() if not v]
+    if missing_optional:
+        logger.warning(
+            f"Optional secrets not set (some features disabled): {', '.join(missing_optional)}"
+        )
+
+    logger.info("All critical secrets validated ✓")
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -46,6 +135,7 @@ build_queue = Queue("forge-builds", connection=redis_conn)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"The Forge API starting — env={settings.app_env}")
+    _validate_critical_secrets()
     await init_db()
     await run_seed()
     yield
@@ -64,7 +154,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── Middleware ────────────────────────────────────────────────────────────────
+# ── Middleware (order matters: outermost first) ───────────────────────────────
+
+app.add_middleware(MaxBodySizeMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -77,6 +169,10 @@ app.add_middleware(
 )
 
 app.add_middleware(AuthMiddleware)
+app.add_middleware(SlowAPIMiddleware)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 

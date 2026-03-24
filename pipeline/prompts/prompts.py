@@ -23,10 +23,15 @@ VALIDATION_SYSTEM = """You are a blueprint validator for The Forge, an AI code g
 Your job is to check if a blueprint document is complete enough to generate a production codebase from.
 Be strict but fair. A blueprint that is genuinely too vague wastes expensive API calls."""
 
-VALIDATION_USER = """Review this blueprint document and determine if it is complete enough to generate a production codebase.
+# IMPORTANT: Do NOT use VALIDATION_USER directly with str.format() — the blueprint
+# can contain curly braces, Python code, f-strings, and other characters that would
+# break str.format(). Use build_validation_prompt() instead which uses concatenation.
+_VALIDATION_USER_BEFORE = """Review this blueprint document and determine if it is complete enough to generate a production codebase.
 
 BLUEPRINT:
-{blueprint_text}
+"""
+
+_VALIDATION_USER_AFTER = """
 
 A complete blueprint must include ALL of the following:
 1. What the agent/application does (its purpose)
@@ -35,12 +40,20 @@ A complete blueprint must include ALL of the following:
 4. The tech stack or service requirements
 
 Respond with a JSON object only — no prose before or after:
-{{
+{
   "is_valid": true/false,
   "missing_elements": ["list of what is missing, empty if valid"],
   "questions": ["specific questions to ask the user to complete the blueprint, empty if valid"],
   "confidence": 0.0-1.0
-}}"""
+}"""
+
+
+def build_validation_prompt(blueprint_text: str) -> str:
+    """
+    Build the validation user prompt using string concatenation — never str.format().
+    blueprint_text can contain any characters including {, }, \\, quotes, etc.
+    """
+    return _VALIDATION_USER_BEFORE + blueprint_text + _VALIDATION_USER_AFTER
 
 
 # ── Stage 3: Blueprint Parsing ────────────────────────────────────────────────
@@ -317,30 +330,38 @@ def build_codegen_prompt(
     meta_rules: list[str] | None = None,
     knowledge_context: str | None = None,
 ) -> str:
-    # Build compact spec summary (not full JSON — too many tokens)
-    spec_summary = _build_spec_summary(spec)
+    # CRITICAL: Use string concatenation throughout — NEVER str.format().
+    # previous_files_context, purpose, knowledge_context can all contain {, }, \, etc.
+    # Any str.format() call with these values will raise KeyError or misformat.
 
-    # Include key previously generated files for import context
+    spec_summary = _build_spec_summary(spec)
     previous_files_context = _build_previous_files_context(previous_files, file_path, layer)
 
-    meta_rules_section = ""
+    parts = [
+        "Generate the complete, production-ready content for this file.",
+        "",
+        "AGENT SPEC:",
+        spec_summary,
+        "",
+        "FILE TO GENERATE:",
+        "Path: " + file_path,
+        "Layer: " + str(layer),
+        "Purpose: " + purpose,
+        "",
+        "PREVIOUSLY GENERATED FILES (for import consistency):",
+        previous_files_context,
+        "",
+    ]
+
     if meta_rules:
         rules_text = "\n".join(f"- {r}" for r in meta_rules)
-        meta_rules_section = f"ACTIVE META-RULES (apply these):\n{rules_text}\n"
+        parts += ["ACTIVE META-RULES (apply these):", rules_text, ""]
 
-    knowledge_context_section = ""
     if knowledge_context:
-        knowledge_context_section = f"RELEVANT KNOWLEDGE BASE:\n{knowledge_context}\n"
+        parts += ["RELEVANT KNOWLEDGE BASE:", knowledge_context, ""]
 
-    return CODEGEN_USER.format(
-        spec_summary=spec_summary,
-        file_path=file_path,
-        layer=layer,
-        purpose=purpose,
-        previous_files_context=previous_files_context,
-        meta_rules_section=meta_rules_section,
-        knowledge_context_section=knowledge_context_section,
-    )
+    parts.append("Generate the complete file content now. Every function complete. No placeholders.")
+    return "\n".join(parts)
 
 
 def _build_spec_summary(spec: dict) -> str:
@@ -408,13 +429,16 @@ EVALUATOR_SYSTEM = """You are a senior Python/React code reviewer for The Forge.
 Your job is to evaluate a generated file against strict quality criteria.
 Be precise and actionable. If a file fails, explain exactly what to fix."""
 
-EVALUATOR_USER = """Evaluate this generated file for production readiness.
+# IMPORTANT: EVALUATOR_USER must NOT be used with str.format() — the content
+# field contains generated code which can have {, }, \, and other format chars.
+# Use build_evaluator_prompt() instead.
+_EVALUATOR_USER_TEMPLATE = """Evaluate this generated file for production readiness.
 
-FILE: {file_path}
-PURPOSE: {purpose}
+FILE: <<<FILE_PATH>>>
+PURPOSE: <<<PURPOSE>>>
 
 CONTENT:
-{content}
+<<<CONTENT>>>
 
 Check for ALL of the following issues:
 1. Placeholder code: any "pass", "...", "TODO", "FIXME", "implement this", "placeholder" — immediate fail
@@ -429,13 +453,29 @@ Check for ALL of the following issues:
 10. Pydantic v1 syntax (class Config: instead of model_config = ConfigDict(...))
 
 Respond with JSON only:
-{{
+{
   "passed": true/false,
   "issues": [
-    {{"severity": "critical|warning", "line": "approximate line or description", "issue": "what is wrong", "fix": "how to fix it"}}
+    {"severity": "critical|warning", "line": "approximate line or description", "issue": "what is wrong", "fix": "how to fix it"}
   ],
   "summary": "one sentence summary"
-}}"""
+}"""
+
+# Keep EVALUATOR_USER as a placeholder reference (not used directly for formatting)
+EVALUATOR_USER = _EVALUATOR_USER_TEMPLATE
+
+
+def build_evaluator_prompt(file_path: str, purpose: str, content: str) -> str:
+    """
+    Build the evaluator prompt using string replacement — never str.format().
+    content is generated code and can contain any characters.
+    """
+    return (
+        _EVALUATOR_USER_TEMPLATE
+        .replace("<<<FILE_PATH>>>", file_path)
+        .replace("<<<PURPOSE>>>", purpose)
+        .replace("<<<CONTENT>>>", content[:30000])
+    )
 
 
 # ── Verifier ─────────────────────────────────────────────────────────────────

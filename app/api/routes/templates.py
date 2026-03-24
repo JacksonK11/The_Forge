@@ -36,11 +36,28 @@ class TemplateDetail(BaseModel):
 async def list_templates(
     session: AsyncSession = Depends(get_db),
 ) -> list[TemplateSummary]:
-    """List all available blueprint templates."""
+    """
+    List all available blueprint templates.
+    Auto-seeds the 5 starter templates if the table is empty.
+    """
     result = await session.execute(
         select(ForgeTemplate).order_by(ForgeTemplate.category, ForgeTemplate.name)
     )
     templates = result.scalars().all()
+
+    # Auto-seed if empty — ensures GET /forge/templates always returns results
+    if not templates:
+        try:
+            from memory.seed import run_seed
+            await run_seed()
+            result = await session.execute(
+                select(ForgeTemplate).order_by(ForgeTemplate.category, ForgeTemplate.name)
+            )
+            templates = result.scalars().all()
+        except Exception as exc:
+            from loguru import logger
+            logger.warning(f"Auto-seed failed (non-blocking): {exc}")
+
     return [
         TemplateSummary(
             id=t.id,

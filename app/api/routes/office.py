@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from memory.database import get_db
-from memory.models import AgentRegistry, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
+from memory.models import AgentRegistry, BuildCost, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
 
 router = APIRouter()
@@ -340,8 +340,11 @@ async def list_agents(
 async def get_stats(session: AsyncSession = Depends(get_db)) -> dict:
     """
     Aggregate statistics for The Forge dashboard overview.
-    Returns total_builds, successful_builds, total_files_generated, total_agents_registered.
+    Returns total_builds, successful_builds, total_files_generated, total_agents_registered,
+    and monthly cost totals in USD + AUD.
     """
+    from datetime import datetime, timedelta, timezone
+
     total_builds_result = await session.execute(select(func.count(ForgeRun.run_id)))
     total_builds = total_builds_result.scalar_one()
 
@@ -356,9 +359,23 @@ async def get_stats(session: AsyncSession = Depends(get_db)) -> dict:
     total_agents_result = await session.execute(select(func.count(AgentRegistry.agent_id)))
     total_agents = total_agents_result.scalar_one()
 
+    # Monthly cost totals
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    monthly_cost_usd_result = await session.execute(
+        select(func.sum(BuildCost.cost_usd)).where(BuildCost.created_at >= month_start)
+    )
+    monthly_cost_aud_result = await session.execute(
+        select(func.sum(BuildCost.cost_aud)).where(BuildCost.created_at >= month_start)
+    )
+    monthly_cost_usd = float(monthly_cost_usd_result.scalar_one() or 0.0)
+    monthly_cost_aud = float(monthly_cost_aud_result.scalar_one() or 0.0)
+
     return {
         "total_builds": total_builds,
         "successful_builds": successful_builds,
         "total_files_generated": total_files,
         "total_agents_registered": total_agents,
+        "monthly_cost_usd": round(monthly_cost_usd, 2),
+        "monthly_cost_aud": round(monthly_cost_aud, 2),
+        "month_start": month_start.isoformat(),
     }

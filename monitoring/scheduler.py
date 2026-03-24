@@ -149,12 +149,12 @@ async def _run_meta_rules_extraction() -> None:
 
 
 async def _send_weekly_summary() -> None:
-    """Send a weekly Telegram summary of Forge activity."""
+    """Send a weekly Telegram summary of Forge activity including costs and health."""
     logger.info("Scheduled job: weekly_summary")
     try:
         from app.api.services.notify import _send
         from memory.database import get_session
-        from memory.models import ForgeRun, RunStatus
+        from memory.models import BuildCost, BuildLog, ForgeRun, RunStatus
         from sqlalchemy import func, select
         from datetime import datetime, timedelta, timezone
 
@@ -182,8 +182,27 @@ async def _send_weekly_summary() -> None:
             complete = complete_result.scalar_one()
             failed = failed_result.scalar_one()
 
-        from knowledge.retriever import get_knowledge_stats
-        kb_stats = await get_knowledge_stats()
+            # Weekly cost
+            cost_usd_result = await session.execute(
+                select(func.sum(BuildCost.cost_usd)).where(
+                    BuildCost.created_at >= week_ago
+                )
+            )
+            cost_aud_result = await session.execute(
+                select(func.sum(BuildCost.cost_aud)).where(
+                    BuildCost.created_at >= week_ago
+                )
+            )
+            week_cost_usd = float(cost_usd_result.scalar_one() or 0.0)
+            week_cost_aud = float(cost_aud_result.scalar_one() or 0.0)
+
+        try:
+            from knowledge.retriever import get_knowledge_stats
+            kb_stats = await get_knowledge_stats()
+        except Exception:
+            kb_stats = {}
+
+        success_pct = f"{(complete/total*100):.0f}%" if total > 0 else "—"
 
         text = (
             f"📊 <b>The Forge — Weekly Summary</b>\n\n"
@@ -191,7 +210,10 @@ async def _send_weekly_summary() -> None:
             f"  Total: <b>{total}</b>\n"
             f"  Completed: <b>{complete}</b>\n"
             f"  Failed: <b>{failed}</b>\n"
-            f"  Success rate: <b>{(complete/total*100):.0f}%</b>\n\n"
+            f"  Success rate: <b>{success_pct}</b>\n\n"
+            f"<b>Cost (last 7 days):</b>\n"
+            f"  USD: <b>${week_cost_usd:.2f}</b>\n"
+            f"  AUD: <b>A${week_cost_aud:.2f}</b>\n\n"
             f"<b>Knowledge Base:</b>\n"
             f"  Total chunks: <b>{kb_stats.get('total_chunks', 0):,}</b>\n"
         )

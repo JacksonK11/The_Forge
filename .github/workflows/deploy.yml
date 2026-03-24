@@ -20,7 +20,7 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
   deploy-worker:
-    name: Deploy Worker
+    name: Deploy Worker (includes scheduler)
     runs-on: ubuntu-latest
     needs: deploy-api
     steps:
@@ -30,20 +30,6 @@ jobs:
 
       - name: Deploy the-forge-worker
         run: flyctl deploy --app the-forge-worker --config fly.worker.toml --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
-  deploy-scheduler:
-    name: Deploy Scheduler
-    runs-on: ubuntu-latest
-    needs: deploy-api
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy the-forge-scheduler
-        run: flyctl deploy --app the-forge-scheduler --config fly.scheduler.toml --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 

@@ -19,26 +19,35 @@ import uuid
 from io import BytesIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.main import limiter
 from memory.database import get_db
 from memory.models import FileStatus, ForgeFile, ForgeRun, ForgeUpdate, RunStatus
 from pipeline.pipeline import run_pipeline_sync
 router = APIRouter()
 
-# Supported plain-text extensions that can be decoded as UTF-8 client-side or server-side
-_PLAIN_TEXT_EXTENSIONS = {".py", ".txt", ".toml", ".json", ".md", ".yml", ".yaml"}
-
-# Extensions requiring server-side binary parsing
+# Binary document extensions that require special parsers
 _BINARY_DOC_EXTENSIONS = {".docx", ".pdf"}
 
-# All supported extensions
-_ALL_SUPPORTED_EXTENSIONS = _PLAIN_TEXT_EXTENSIONS | _BINARY_DOC_EXTENSIONS
+# All extensions that map to explicit UTF-8 plain-text treatment (no special parser)
+# Any other extension also falls through to UTF-8 attempt — this list is informational.
+_PLAIN_TEXT_EXTENSIONS = {
+    ".py", ".txt", ".toml", ".json", ".md", ".yml", ".yaml",
+    ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss", ".less",
+    ".rs", ".go", ".sh", ".bash", ".zsh", ".fish",
+    ".cfg", ".ini", ".env", ".sql",
+    ".r", ".rb", ".php", ".swift", ".kt", ".dart",
+    ".vue", ".svelte", ".prisma", ".graphql", ".proto",
+    ".makefile", ".dockerfile", ".xml", ".csv", ".tsv",
+    ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
+    ".tf", ".hcl", ".nix",
+}
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
@@ -103,7 +112,9 @@ class SubmitWithFilesResponse(BaseModel):
 
 
 @router.post("/submit", response_model=SubmitBlueprintResponse)
+@limiter.limit("10/hour")
 async def submit_blueprint(
+    http_request: Request,
     request: SubmitBlueprintRequest,
     session: AsyncSession = Depends(get_db),
 ) -> SubmitBlueprintResponse:
@@ -155,7 +166,9 @@ async def submit_blueprint(
 
 
 @router.post("/submit-with-files", response_model=SubmitWithFilesResponse)
+@limiter.limit("10/hour")
 async def submit_with_files(
+    http_request: Request,
     title: str = Form(...),
     blueprint_text: str = Form(...),
     repo_name: Optional[str] = Form(None),
@@ -181,33 +194,38 @@ async def submit_with_files(
     """
     from app.api.main import get_build_queue
 
-    # Extract text from each attached file
+    # Extract text from each attached file.
+    # Never fail the whole build because one file can't be parsed — skip and log.
     file_sections: list[str] = []
+    skipped_files: list[str] = []
     for upload_file in files:
         filename = upload_file.filename or "unknown"
         try:
             file_bytes = await upload_file.read()
         except Exception as exc:
             logger.error(f"Failed to read uploaded file '{filename}': {exc}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to read file '{filename}': {exc}",
-            )
+            skipped_files.append(filename)
+            continue
 
         try:
             extracted_text = _extract_text_from_file(file_bytes, filename)
         except Exception as exc:
-            logger.error(f"Failed to extract text from '{filename}': {exc}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to extract text from '{filename}': {exc}",
+            logger.warning(
+                f"Could not extract text from '{filename}' — skipping file, continuing build: {exc}"
             )
+            skipped_files.append(filename)
+            continue
 
         logger.info(
             f"Extracted {len(extracted_text)} chars from attached file '{filename}' "
             f"({len(file_bytes)} bytes)"
         )
         file_sections.append(f"=== ATTACHED FILE: {filename} ===\n{extracted_text}")
+
+    if skipped_files:
+        logger.warning(
+            f"Skipped {len(skipped_files)} unreadable files: {skipped_files}"
+        )
 
     # Combine blueprint text with extracted file contents
     if file_sections:
@@ -691,27 +709,16 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     """
     Extract plain text from uploaded file bytes.
 
-    Supports:
-    - .docx: uses python-docx to extract paragraph text
-    - .pdf: uses pypdf to extract page text
-    - .py, .txt, .toml, .json, .md, .yml, .yaml: decoded as UTF-8
+    Accepts ANY file extension:
+    - .docx: python-docx paragraph extraction
+    - .pdf: pypdf page extraction
+    - Known text extensions (.py, .ts, .go, etc.): UTF-8 decode
+    - Unknown/no extension: attempt UTF-8, fall back to latin-1
+    - If all parsing fails: raises ValueError (caller decides whether to skip or fail)
 
-    Returns extracted text with paragraphs/pages joined by newlines.
-    Raises ValueError for unsupported file types or parsing failures.
+    Never raises due to an unrecognised extension — always attempts UTF-8 first.
     """
     ext = _get_file_extension(filename)
-
-    if not ext:
-        raise ValueError(
-            f"File '{filename}' has no extension. "
-            f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
-        )
-
-    if ext not in _ALL_SUPPORTED_EXTENSIONS:
-        raise ValueError(
-            f"Unsupported file type '{ext}' for file '{filename}'. "
-            f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
-        )
 
     # ── .docx extraction via python-docx ─────────────────────────────────
     if ext == ".docx":
@@ -726,10 +733,7 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
             )
             return text
         except ImportError:
-            logger.error("python-docx is not installed. Install with: pip install python-docx")
-            raise ValueError(
-                "Server cannot parse .docx files — python-docx library is not installed."
-            )
+            logger.warning("python-docx not installed — falling back to UTF-8 attempt")
         except Exception as exc:
             logger.error(f"Failed to extract text from .docx '{filename}': {exc}")
             raise ValueError(f"Failed to parse .docx file: {exc}") from exc
@@ -749,39 +753,32 @@ def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
             )
             return text
         except ImportError:
-            logger.error("pypdf is not installed. Install with: pip install pypdf")
-            raise ValueError(
-                "Server cannot parse .pdf files — pypdf library is not installed."
-            )
+            logger.warning("pypdf not installed — falling back to UTF-8 attempt")
         except Exception as exc:
             logger.error(f"Failed to extract text from .pdf '{filename}': {exc}")
             raise ValueError(f"Failed to parse .pdf file: {exc}") from exc
 
-    # ── Plain text files decoded as UTF-8 ────────────────────────────────
-    if ext in _PLAIN_TEXT_EXTENSIONS:
-        try:
-            text = file_bytes.decode("utf-8")
-            logger.info(
-                f"Decoded {len(text)} chars from plain text file '{filename}' (UTF-8)"
-            )
-            return text
-        except UnicodeDecodeError as exc:
-            logger.error(f"UTF-8 decode failed for '{filename}': {exc}")
-            # Fall back to latin-1 which never fails
-            try:
-                text = file_bytes.decode("latin-1")
-                logger.warning(
-                    f"Fell back to latin-1 decoding for '{filename}' "
-                    f"({len(text)} chars)"
-                )
-                return text
-            except Exception as fallback_exc:
-                raise ValueError(
-                    f"Failed to decode text file '{filename}': {exc}"
-                ) from fallback_exc
+    # ── All other extensions (including unknown): attempt UTF-8 ──────────
+    # This covers: .py .ts .go .rs .sh .sql .html .css .jsx .tsx .vue
+    # .prisma .graphql .proto .cfg .ini .env .r .rb .php .swift .kt .dart
+    # .svelte .makefile .dockerfile — and any unlisted or extension-less file.
+    try:
+        text = file_bytes.decode("utf-8")
+        logger.info(
+            f"Decoded {len(text)} chars from '{filename}' (UTF-8, ext='{ext or 'none'}')"
+        )
+        return text
+    except UnicodeDecodeError:
+        pass
 
-    # Should not reach here given the extension check above, but just in case
-    raise ValueError(
-        f"Unsupported file type '{ext}' for file '{filename}'. "
-        f"Supported: {', '.join(sorted(_ALL_SUPPORTED_EXTENSIONS))}"
-    )
+    # UTF-8 failed — try latin-1 (never fails on any byte sequence)
+    try:
+        text = file_bytes.decode("latin-1")
+        logger.warning(
+            f"UTF-8 failed for '{filename}' — decoded {len(text)} chars via latin-1"
+        )
+        return text
+    except Exception as exc:
+        raise ValueError(
+            f"Cannot decode file '{filename}' (ext='{ext or 'none'}') as text: {exc}"
+        ) from exc

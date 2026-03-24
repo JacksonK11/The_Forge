@@ -2,7 +2,7 @@
 memory/models.py
 Database models for The Forge — AI Build Engine.
 
-11 tables:
+14 tables:
   Core:        forge_runs, forge_files
   Intelligence: kb_records, meta_rules
   Knowledge:   knowledge_articles, knowledge_chunks
@@ -10,6 +10,9 @@ Database models for The Forge — AI Build Engine.
   Monitoring:  performance_metrics
   Updates:     forge_updates
   Registry:    agents_registry
+  Costs:       build_costs
+  Versioning:  build_versions
+  Logs:        build_logs
 """
 
 import uuid
@@ -371,6 +374,101 @@ class AgentRegistry(Base):
     )
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class BuildCost(Base):
+    """
+    Tracks exact token usage and cost (USD + AUD) for every Claude API call in the pipeline.
+    One row per Claude call. Aggregated per run_id for cost dashboard.
+    Alert fires via Telegram if a single build exceeds $8 AUD.
+    """
+
+    __tablename__ = "build_costs"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("forge_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    stage: Mapped[str] = mapped_column(
+        String(100), nullable=False
+    )  # "parse", "architecture", "generation", "evaluation", "verification", etc.
+    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    cost_aud: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BuildVersion(Base):
+    """
+    Semantic version tag per build run. v1.0.0 on first build, patch bumped on updates.
+    Any version can be rolled back to by re-deploying the stored package_data.
+    """
+
+    __tablename__ = "build_versions"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("forge_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_tag: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # "v1.0.0", "v1.0.1", "v1.1.0"
+    version_major: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    version_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    version_patch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    agent_slug: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    commit_sha: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    github_repo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BuildLog(Base):
+    """
+    Structured per-stage log entries for every pipeline run.
+    Stored in DB so the dashboard can show an expandable per-stage log viewer.
+    Weekly health report reads this for success rates and average build times.
+    """
+
+    __tablename__ = "build_logs"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("forge_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    stage: Mapped[str] = mapped_column(
+        String(100), nullable=False
+    )  # "parse", "architecture", "generation", "package", "github_push", "deploy_verify"
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[str] = mapped_column(
+        String(20), default="INFO", nullable=False
+    )  # "INFO", "WARNING", "ERROR"
+    details_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
