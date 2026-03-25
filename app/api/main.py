@@ -161,7 +161,7 @@ app.add_middleware(MaxBodySizeMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.app_env == "development" else [
-        "https://the-forge-dashboard.fly.dev"
+        "https://the-forge-dashboard1.fly.dev"
     ],
     allow_credentials=True,
     allow_methods=["*"],
