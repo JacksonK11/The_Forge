@@ -980,13 +980,13 @@ async def seed_templates(session) -> int:
         try:
             await session.execute(
                 text("""
-                    INSERT INTO build_templates (file_type, template_content, created_at, updated_at)
-                    VALUES (:file_type, :template_content, NOW(), NOW())
+                    INSERT INTO build_templates (file_type, template_content, successful_deployments, created_at, updated_at)
+                    VALUES (:file_type, :template_content, :successful_deployments, NOW(), NOW())
                     ON CONFLICT (file_type) DO UPDATE
                         SET template_content = EXCLUDED.template_content,
                             updated_at = NOW()
                 """),
-                {"file_type": file_type, "template_content": template_content},
+                {"file_type": file_type, "template_content": template_content, "successful_deployments": 1},
             )
             await session.flush()
             inserted += 1
@@ -1045,7 +1045,7 @@ async def seed_agent_registry(session) -> int:
                     INSERT INTO forge_agent_versions
                         (run_id, agent_name, spec_json, file_manifest, version, created_at)
                     VALUES
-                        (:run_id, :agent_name, :spec_json::jsonb, :file_manifest::jsonb, :version, NOW())
+                        (:run_id, :agent_name, :spec_json, :file_manifest, :version, NOW())
                     ON CONFLICT DO NOTHING
                 """),
                 {
@@ -1083,7 +1083,7 @@ async def seed_deployment_feedback(session) -> int:
                     INSERT INTO deployment_feedback
                         (run_id, deployed_successfully, payload, created_at)
                     VALUES
-                        (:run_id, :deployed_successfully, :payload::jsonb, NOW())
+                        (:run_id, :deployed_successfully, :payload, NOW())
                     ON CONFLICT DO NOTHING
                 """),
                 {
