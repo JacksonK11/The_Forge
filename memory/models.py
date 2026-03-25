@@ -525,3 +525,66 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# ── Build Part 11 Tables ──────────────────────────────────────────────────────
+
+
+class DeploymentFeedback(Base):
+    """
+    Deployment feedback submitted by users after deploying a generated agent.
+    Feeds the knowledge base so The Forge learns from real-world outcomes.
+    """
+
+    __tablename__ = "deployment_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    deployed_successfully: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ForgeAgentVersion(Base):
+    """
+    Version history for every agent built (full or incremental) by The Forge.
+    Original builds have parent_run_id=None; incremental builds reference parent.
+    """
+
+    __tablename__ = "forge_agent_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    spec_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    file_manifest: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True
+    )  # {path: {hash, layer, last_modified}}
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_run_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BuildTemplate(Base):
+    """
+    Proven file templates extracted from builds with positive deployment feedback.
+    Future builds use these as starting points instead of generating from scratch.
+    """
+
+    __tablename__ = "build_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_type: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    template_content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_run_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    successful_deployments: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

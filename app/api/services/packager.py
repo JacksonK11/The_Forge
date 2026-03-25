@@ -27,6 +27,7 @@ async def assemble_package(
     connection_test_content: str,
     security_report_content: str,
     failed_files_report_content: Optional[str] = None,
+    feedback_reporter_content: Optional[str] = None,
 ) -> bytes:
     """
     Build ZIP archive for a completed forge run.
@@ -59,6 +60,10 @@ async def assemble_package(
         # Write failed files report if any files need manual implementation
         if failed_files_report_content:
             zf.writestr(f"{agent_slug}/FAILED_FILES_REPORT.md", failed_files_report_content)
+
+        # Write feedback reporter script for post-deployment feedback
+        if feedback_reporter_content:
+            zf.writestr(f"{agent_slug}/feedback_reporter.py", feedback_reporter_content)
 
     zip_buffer.seek(0)
     package_bytes = zip_buffer.read()

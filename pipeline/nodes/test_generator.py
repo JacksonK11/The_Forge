@@ -1,249 +1,371 @@
 """
 pipeline/nodes/test_generator.py
-Generates pytest test files for every Python file in layers 1-4.
+Generates basic smoke tests for every API route and pipeline node.
+Tests run in the sandbox to verify structural correctness before packaging.
 
-For each source file, generates a corresponding tests/test_<filename>.py
-using the same spec context so tests cover realistic scenarios:
-  - Database models: creation, field validation, relationship loading
-  - API routes: correct status codes, response schemas, auth rejection
-  - Pipeline nodes: output shapes, error handling, DB state mutations
-  - Services: happy path and error path coverage
-
-Adds ~10-15 extra files per build (1 test file per substantive Python file).
-Test files use pytest-asyncio for async tests and httpx.AsyncClient for routes.
-Cost: ~£0.05-0.10 per build (15 extra Haiku calls).
+Uses Haiku (evaluation model) — cheap, fast.
+Tests are basic smoke tests: 20-40 lines each. Goal is catching obvious
+structural failures, not comprehensive business logic testing.
 
 Called from codegen_node.py after all layer 1-4 files are generated.
 """
 
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from pathlib import Path
+from typing import Any
+
 import anthropic
 from loguru import logger
 
-from app.api.services.retry import retry_async
 from config.model_config import router
 from config.settings import settings
-from pipeline.pipeline import PipelineState
-
-client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-TEST_SYSTEM = """You are generating pytest test files for production Python code.
-
-Rules:
-- Use pytest-asyncio for all async tests: @pytest.mark.asyncio
-- Use httpx.AsyncClient for FastAPI route tests
-- Use AsyncMock and MagicMock for external dependencies (Anthropic, OpenAI, Tavily)
-- Never hit real external APIs in tests
-- Every test has a clear docstring explaining what it tests
-- Tests cover: happy path, error path, edge cases
-- Use pytest fixtures for database sessions and app client
-- Import exactly what is used — no unused imports
-- No placeholder tests — every test assertion is meaningful
-- conftest.py fixtures use in-memory SQLite or pytest-postgresql if available
-
-Generate ONLY the test file content. No explanation. No markdown."""
-
-TEST_USER = """Generate a complete pytest test file for this source file.
-
-SOURCE FILE: {file_path}
-PURPOSE: {purpose}
-
-SOURCE CODE:
-{source_code}
-
-SPEC CONTEXT (for realistic test scenarios):
-{spec_summary}
-
-Test file path: tests/test_{test_filename}
-
-Generate every test as a complete, runnable function with meaningful assertions."""
 
 
-# Files that should be tested (layers 1-4, substantive Python files)
-TESTABLE_LAYERS = frozenset([1, 3, 4])
-SKIP_FILES = frozenset([
-    "__init__.py",
-    "database.py",  # DB setup — tested implicitly
-    "seed.py",      # Seed data — tested implicitly
-    "worker.py",    # Entry point — integration tested
-])
+# ---------------------------------------------------------------------------
+# Minimal hardcoded fallback tests — returned when Claude fails
+# ---------------------------------------------------------------------------
+
+_FALLBACK_CONFTEST = """\
+from fastapi.testclient import TestClient
+from app.api.main import app
+import pytest
 
 
-async def generate_test_files(state: PipelineState) -> dict[str, str]:
-    """
-    Generate test files for all testable Python files in the build.
-    Returns dict of test_file_path → content.
-    """
-    if not state.spec or not state.manifest:
-        logger.warning("Test generator: missing spec or manifest, skipping")
-        return {}
-
-    spec_summary = _build_spec_summary(state.spec)
-    test_files: dict[str, str] = {}
-
-    manifest = state.manifest.get("file_manifest", [])
-    testable = [
-        entry for entry in manifest
-        if entry.get("layer") in TESTABLE_LAYERS
-        and entry.get("path", "").endswith(".py")
-        and entry.get("path", "").split("/")[-1] not in SKIP_FILES
-        and entry.get("path", "") in state.generated_files
-    ]
-
-    logger.info(f"[{state.run_id}] Generating tests for {len(testable)} files")
-
-    # Also generate conftest.py
-    conftest = await _generate_conftest(state.spec)
-    if conftest:
-        test_files["tests/conftest.py"] = conftest
-
-    for entry in testable:
-        file_path = entry["path"]
-        source_code = state.generated_files.get(file_path, "")
-        if not source_code or len(source_code.strip()) < 50:
-            continue
-
-        test_filename = file_path.replace("/", "_").replace(".py", "")
-        test_path = f"tests/test_{test_filename}.py"
-
-        try:
-            content = await retry_async(
-                _generate_test_file,
-                file_path,
-                entry.get("description", ""),
-                source_code,
-                spec_summary,
-                test_filename,
-                max_attempts=2,
-                label=f"test_gen:{file_path}",
-            )
-            if content and len(content.strip()) > 50:
-                test_files[test_path] = content
-                logger.debug(f"[{state.run_id}] Test generated: {test_path}")
-        except Exception as exc:
-            logger.warning(f"[{state.run_id}] Test generation failed for {file_path}: {exc}")
-
-    logger.info(f"[{state.run_id}] Test generation complete: {len(test_files)} test files")
-    return test_files
-
-
-async def _generate_test_file(
-    file_path: str,
-    purpose: str,
-    source_code: str,
-    spec_summary: str,
-    test_filename: str,
-) -> str:
-    """Generate a single test file using Claude Haiku."""
-    model = router.get_model("generation")  # Use Sonnet for tests — quality matters
-    prompt = TEST_USER.format(
-        file_path=file_path,
-        purpose=purpose,
-        source_code=source_code[:4000],
-        spec_summary=spec_summary,
-        test_filename=test_filename,
-    )
-    response = await client.messages.create(
-        model=model,
-        max_tokens=16000,
-        system=TEST_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    content = response.content[0].text.strip()
-    if content.startswith("```"):
-        lines = content.split("\n")
-        lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        content = "\n".join(lines)
-    return content
-
-
-async def _generate_conftest(spec: dict) -> str:
-    """Generate tests/conftest.py with shared pytest fixtures."""
-    agent_slug = spec.get("agent_slug", "agent")
-    agent_name = spec.get("agent_name", "Agent")
-    tables = [t["name"] for t in spec.get("database_tables", [])]
-
-    return f'''"""
-tests/conftest.py
-Shared pytest fixtures for {agent_name} test suite.
+@pytest.fixture
+def client():
+    return TestClient(app)
 """
 
-import asyncio
-import os
-from typing import AsyncGenerator
-
-import pytest
-import pytest_asyncio
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from memory.models import Base
-
-# Use in-memory SQLite for tests
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
-os.environ.setdefault("API_SECRET_KEY", "test-secret-key")
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
-os.environ.setdefault("OPENAI_API_KEY", "test-key")
-os.environ.setdefault("TAVILY_API_KEY", "test-key")
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "123456")
+_FALLBACK_HEALTH_TEST = """\
+def test_health_returns_200(client):
+    response = client.get("/health")
+    assert response.status_code == 200
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the entire test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def test_health_has_status_key(client):
+    response = client.get("/health")
+    data = response.json()
+    assert "status" in data
+"""
+
+_FALLBACK_FILES: list[dict] = [
+    {"path": "tests/conftest.py", "content": _FALLBACK_CONFTEST},
+    {"path": "tests/test_health.py", "content": _FALLBACK_HEALTH_TEST},
+]
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_engine():
-    """In-memory SQLite engine for each test function."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+# ---------------------------------------------------------------------------
+# TestGenerator
+# ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Database session for each test function."""
-    async_session = async_sessionmaker(db_engine, expire_on_commit=False)
-    async with async_session() as session:
-        yield session
+class TestGenerator:
+    """
+    Generates lightweight pytest smoke tests for a Forge-built agent.
+    Tests cover every API route and pipeline node at a structural level —
+    no mocking, no business logic, just catching obvious failures fast.
+    """
+
+    def __init__(self) -> None:
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    # ------------------------------------------------------------------
+    # 1. Generate Tests
+    # ------------------------------------------------------------------
+
+    async def generate_tests(
+        self,
+        spec: dict,
+        all_files: list[dict],
+    ) -> list[dict]:
+        """
+        Generate smoke test files for the given spec and file list.
+
+        Returns a list of {"path": str, "content": str} dicts.
+        Falls back to minimal hardcoded tests if Claude fails.
+        """
+        try:
+            # ---- Extract routes ----------------------------------------
+            routes: list[Any] = spec.get("api_routes", []) or spec.get(
+                "endpoints", []
+            )
+            routes_summary = self._summarise_routes(routes)
+
+            # ---- Extract pipeline node paths ---------------------------
+            node_paths = [
+                f["path"]
+                for f in all_files
+                if "/nodes/" in f.get("path", "")
+                and f.get("path", "").endswith(".py")
+            ]
+
+            # ---- Build prompt ------------------------------------------
+            node_line = (
+                f"\nPIPELINE NODES: {', '.join(node_paths)}\n" if node_paths else ""
+            )
+            prompt = (
+                "Generate basic pytest smoke tests for this FastAPI agent.\n\n"
+                f"ROUTES: {routes_summary}"
+                f"{node_line}"
+                "\nWrite:\n"
+                "1. tests/conftest.py with a TestClient fixture:\n"
+                "   from fastapi.testclient import TestClient\n"
+                "   from app.api.main import app\n"
+                "   import pytest\n"
+                "   @pytest.fixture\n"
+                "   def client(): return TestClient(app)\n\n"
+                "2. tests/test_api_smoke.py with one test per route:\n"
+                "   - Call endpoint with minimal valid data\n"
+                "   - Assert status_code < 500\n"
+                "   - Assert response is JSON\n\n"
+                "3. tests/test_health.py:\n"
+                '   - Test GET /health returns 200\n'
+                '   - Test response has "status" key\n\n'
+                "Keep each test function under 15 lines. No mocking.\n"
+                "Return ONLY valid JSON — no markdown, no code fences:\n"
+                '{"files": [{"path": "tests/conftest.py", "content": "..."}, ...]}'
+            )
+
+            model = router.get_model("evaluation")
+            response = await self._client.messages.create(
+                model=model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            raw_text = response.content[0].text.strip()
+
+            # Strip markdown code fences if Claude included them
+            if raw_text.startswith("```"):
+                lines = raw_text.split("\n")
+                inner = lines[1:] if lines else []
+                if inner and not inner[-1].strip("`"):
+                    inner = inner
+                elif inner and inner[-1].strip() == "```":
+                    inner = inner[:-1]
+                raw_text = "\n".join(inner).strip()
+
+            parsed = json.loads(raw_text)
+            files: list[dict] = parsed.get("files", [])
+
+            if not files:
+                logger.warning(
+                    "test_generator.generate_tests: Claude returned empty files list — using fallback"
+                )
+                return _FALLBACK_FILES
+
+            # Validate structure
+            validated: list[dict] = []
+            for entry in files:
+                if isinstance(entry, dict) and "path" in entry and "content" in entry:
+                    validated.append(
+                        {"path": str(entry["path"]), "content": str(entry["content"])}
+                    )
+
+            if not validated:
+                logger.warning(
+                    "test_generator.generate_tests: no valid file entries after validation — using fallback"
+                )
+                return _FALLBACK_FILES
+
+            logger.info(
+                "test_generator.generate_tests: generated {} test files", len(validated)
+            )
+            return validated
+
+        except Exception as exc:
+            logger.warning(
+                "test_generator.generate_tests: Claude call failed — {} — using fallback",
+                exc,
+            )
+            return _FALLBACK_FILES
+
+    # ------------------------------------------------------------------
+    # 2. Run Tests in Sandbox
+    # ------------------------------------------------------------------
+
+    async def run_tests_in_sandbox(
+        self,
+        run_id: str,
+        sandbox_dir: str,
+        test_files: list[dict],
+    ) -> dict:
+        """
+        Write test files into sandbox_dir and execute pytest.
+
+        Returns:
+        {
+            "total":    int,
+            "passed":   int,
+            "failed":   int,
+            "failures": [str],
+        }
+        """
+        try:
+            # ---- Write test files to sandbox ---------------------------
+            for file_entry in test_files:
+                rel_path: str = file_entry.get("path", "")
+                content: str = file_entry.get("content", "")
+                if not rel_path:
+                    continue
+                dest = Path(sandbox_dir) / rel_path
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(content, encoding="utf-8")
+                except Exception as write_exc:
+                    logger.warning(
+                        "test_generator.run_tests_in_sandbox: could not write {} — {}",
+                        rel_path,
+                        write_exc,
+                    )
+
+            tests_dir = str(Path(sandbox_dir) / "tests")
+
+            # ---- Run pytest in subprocess (async) ----------------------
+            cmd = [
+                "python3",
+                "-m",
+                "pytest",
+                tests_dir,
+                "--tb=short",
+                "-q",
+                "--no-header",
+            ]
+            logger.debug(
+                "test_generator.run_tests_in_sandbox: running pytest in {}",
+                tests_dir,
+            )
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=sandbox_dir,
+            )
+
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                logger.warning(
+                    "test_generator.run_tests_in_sandbox: pytest timed out after 30s"
+                )
+                return {
+                    "total": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "failures": ["pytest timed out after 30 seconds"],
+                }
+
+            output = stdout_bytes.decode("utf-8", errors="replace")
+            logger.debug(
+                "test_generator.run_tests_in_sandbox: pytest output:\n{}", output
+            )
+
+            return self._parse_pytest_output(output)
+
+        except Exception as exc:
+            logger.warning(
+                "test_generator.run_tests_in_sandbox: error — {}", exc
+            )
+            return {
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "failures": [str(exc)],
+            }
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _summarise_routes(self, routes: list[Any]) -> str:
+        """Produce a compact human-readable summary of API routes."""
+        if not routes:
+            return "(no routes defined)"
+        parts: list[str] = []
+        for route in routes[:30]:  # cap to avoid giant prompts
+            if isinstance(route, dict):
+                method = route.get("method", route.get("http_method", "GET")).upper()
+                path = route.get("path", route.get("url", ""))
+                name = route.get("name", route.get("description", ""))
+                parts.append(f"{method} {path}" + (f" — {name}" if name else ""))
+            elif isinstance(route, str):
+                parts.append(route)
+        return "\n".join(parts) if parts else "(no routes parsed)"
+
+    def _parse_pytest_output(self, output: str) -> dict:
+        """
+        Parse the summary line from pytest -q output.
+
+        Examples:
+          "5 passed in 0.42s"
+          "3 passed, 2 failed in 1.03s"
+          "1 error in 0.12s"
+        """
+        passed = 0
+        failed = 0
+        errors = 0
+        failures: list[str] = []
+
+        passed_match = re.search(r"(\d+)\s+passed", output)
+        failed_match = re.search(r"(\d+)\s+failed", output)
+        error_match = re.search(r"(\d+)\s+error", output)
+
+        if passed_match:
+            passed = int(passed_match.group(1))
+        if failed_match:
+            failed = int(failed_match.group(1))
+        if error_match:
+            errors = int(error_match.group(1))
+
+        total = passed + failed + errors
+
+        # Collect short failure/error lines
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("FAILED") or stripped.startswith("ERROR"):
+                failures.append(stripped[:200])
+
+        # Fallback: capture raw output if nothing parsed
+        if total == 0 and not failures:
+            failures = [output[:500]] if output.strip() else ["No output from pytest"]
+
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": failed + errors,
+            "failures": failures,
+        }
 
 
-@pytest_asyncio.fixture(scope="function")
-async def api_client(db_engine) -> AsyncGenerator[AsyncClient, None]:
-    """Async HTTP client with auth header for API tests."""
-    from app.api.main import app
-    from memory.database import engine as prod_engine
-    from memory.database import AsyncSessionLocal
-
-    # Override the database engine with test engine
-    async with AsyncClient(
-        app=app,
-        base_url="http://test",
-        headers={{"Authorization": "Bearer test-secret-key"}},
-    ) as client:
-        yield client
-'''
+# ---------------------------------------------------------------------------
+# Module-level backward-compatibility wrapper
+# ---------------------------------------------------------------------------
 
 
-def _build_spec_summary(spec: dict) -> str:
-    """Build a compact spec summary for test prompts."""
-    tables = [t["name"] for t in spec.get("database_tables", [])]
-    routes = [f"{r['method']} {r['path']}" for r in spec.get("api_routes", [])]
-    return (
-        f"Agent: {spec.get('agent_name')}\n"
-        f"Tables: {', '.join(tables)}\n"
-        f"Routes: {', '.join(routes[:10])}"
-    )
+async def generate_test_files(state: Any) -> dict[str, str]:
+    """
+    Module-level wrapper called by codegen_node.py.
+    Generates test files and returns {path: content} dict.
+    """
+    try:
+        gen = TestGenerator()
+        all_files = [
+            {"path": p, "content": c}
+            for p, c in (state.generated_files or {}).items()
+        ]
+        test_file_list = await gen.generate_tests(state.spec or {}, all_files)
+        return {f["path"]: f["content"] for f in test_file_list}
+    except Exception as exc:
+        logger.warning(
+            "test_generator.generate_test_files: wrapper error — {}", exc
+        )
+        return {f["path"]: f["content"] for f in _FALLBACK_FILES}

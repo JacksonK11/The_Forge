@@ -110,6 +110,20 @@ async def generate_file_for_layer(
     if basename in TRIVIAL_FILES:
         return TRIVIAL_FILES[basename]
 
+    # ── Template library lookup — use proven template as starting point ───────
+    if not diagnosis_context:  # Don't override repair instructions with templates
+        try:
+            from pipeline.services.template_library import TemplateLibrary, _classify_file_type
+            file_type = _classify_file_type(file_path)
+            if file_type:
+                tl = TemplateLibrary()
+                template = await tl.get_template(file_type, spec)
+                if template:
+                    diagnosis_context = await tl.enhance_generation(file_entry, spec, template)
+                    logger.debug(f"[{run_id}] Template library: using '{file_type}' template for {file_path}")
+        except Exception as tl_exc:
+            logger.debug(f"[{run_id}] Template library lookup failed (non-blocking): {tl_exc}")
+
     # ── Shared context (same for all attempts) ────────────────────────────────
     meta_rules = await _get_meta_rules()
     knowledge_context = await _get_knowledge_context(file_path, purpose)

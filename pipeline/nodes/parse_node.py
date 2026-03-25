@@ -129,6 +129,28 @@ async def parse_node(state: PipelineState) -> PipelineState:
         state.current_stage = "failed"
         return state
 
+    # ── Step 1b: Blueprint deep validation + auto-resolve (40-70 range) ───────
+    try:
+        from pipeline.services.blueprint_validator import BlueprintValidator
+        bv = BlueprintValidator()
+        bv_result = await bv.validate(state.blueprint_text)
+        bv_score = bv_result.get("score", quality_score)
+        bv_summary = bv.format_for_spec_review(bv_result)
+        logger.info(f"[{state.run_id}] Blueprint validator: {bv_score}/100")
+
+        # Auto-resolve ambiguities for mid-range blueprints
+        if 40 <= bv_score <= 70 and bv_result.get("ambiguities"):
+            state.blueprint_text = await bv.auto_resolve(state.blueprint_text, bv_result)
+            logger.info(
+                f"[{state.run_id}] Blueprint auto-resolved: "
+                f"{len([a for a in bv_result.get('ambiguities', []) if a.get('auto_resolvable')])} ambiguities"
+            )
+
+        # Store validation summary for spec review screen
+        state.blueprint_validation = bv_summary
+    except Exception as bv_exc:
+        logger.warning(f"[{state.run_id}] Blueprint validator failed (non-blocking): {bv_exc}")
+
     # ── Step 2: Validate with Haiku ──────────────────────────────────────────
     validation_result = await _validate_blueprint(state)
     if not validation_result.get("is_valid", False):

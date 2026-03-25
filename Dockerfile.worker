@@ -14,6 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-install common packages found in generated agent code so the sandbox
+# can validate import resolution without installing requirements.txt each time.
+RUN pip install --no-cache-dir \
+    "sqlalchemy[asyncio]" asyncpg psycopg2-binary \
+    fastapi uvicorn pydantic redis rq anthropic httpx \
+    loguru python-dotenv pytest alembic
+
 COPY . .
 
 ENV PYTHONPATH=/app

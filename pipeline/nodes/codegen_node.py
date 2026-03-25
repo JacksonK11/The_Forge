@@ -374,6 +374,78 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             f"[{state.run_id}] Post-build report failed (non-blocking): {report_exc}"
         )
 
+    # ── Coherence check — verify files work together as a system ─────────────
+    all_files_list = [
+        {"path": p, "content": c} for p, c in state.generated_files.items()
+    ]
+    coherence_result: dict = {"passed": True, "total_issues": 0}
+    try:
+        from pipeline.services.coherence_checker import CoherenceChecker
+        checker = CoherenceChecker()
+        coherence_result = await checker.check_coherence(all_files_list, state.spec or {})
+        logger.info(
+            f"[{state.run_id}] COHERENCE: {'PASSED' if coherence_result.get('passed') else 'ISSUES'} — "
+            f"{coherence_result.get('total_issues', 0)} issues found"
+        )
+        if not coherence_result.get("passed"):
+            fixed_files = await checker.auto_fix(all_files_list, coherence_result)
+            for f in fixed_files:
+                state.generated_files[f["path"]] = f["content"]
+            all_files_list = fixed_files
+    except Exception as coh_exc:
+        logger.warning(f"[{state.run_id}] Coherence check failed (non-blocking): {coh_exc}")
+
+    # ── Sandbox validation — actually run the code ────────────────────────────
+    sandbox_result: dict = {"passed": True, "app_loads": True, "syntax_errors": [], "import_errors": []}
+    sandbox_dir: str = f"/tmp/forge-sandbox-{state.run_id}"
+    try:
+        from pipeline.services.sandbox import BuildSandbox
+        sandbox = BuildSandbox()
+        sandbox_result = await sandbox.validate_package(state.run_id, all_files_list)
+        logger.info(
+            f"[{state.run_id}] SANDBOX: {'PASSED' if sandbox_result.get('passed') else 'FAILED'} — "
+            f"syntax_errors={len(sandbox_result.get('syntax_errors', []))} "
+            f"import_errors={len(sandbox_result.get('import_errors', []))} "
+            f"app_loads={sandbox_result.get('app_loads', False)}"
+        )
+        if not sandbox_result.get("passed"):
+            repaired = await sandbox.repair_from_sandbox(
+                state.run_id, sandbox_result, all_files_list
+            )
+            for f in repaired:
+                state.generated_files[f["path"]] = f["content"]
+            all_files_list = repaired
+            # Re-validate after repairs
+            sandbox_result = await sandbox.validate_package(state.run_id, all_files_list)
+            logger.info(
+                f"[{state.run_id}] SANDBOX (post-repair): "
+                f"{'PASSED' if sandbox_result.get('passed') else 'STILL FAILING'}"
+            )
+    except Exception as sb_exc:
+        logger.warning(f"[{state.run_id}] Sandbox validation failed (non-blocking): {sb_exc}")
+
+    # ── Run tests in sandbox ──────────────────────────────────────────────────
+    test_results: dict = {"total": 0, "passed": 0, "failed": 0}
+    try:
+        from pipeline.nodes.test_generator import TestGenerator
+        test_gen = TestGenerator()
+        test_results = await test_gen.run_tests_in_sandbox(
+            run_id=state.run_id,
+            sandbox_dir=sandbox_dir,
+        )
+        logger.info(
+            f"[{state.run_id}] TESTS: {test_results.get('passed', 0)}/{test_results.get('total', 0)} passed"
+        )
+    except Exception as test_exc:
+        logger.warning(f"[{state.run_id}] Test run failed (non-blocking): {test_exc}")
+    finally:
+        # Always clean up sandbox directory
+        try:
+            from pipeline.services.sandbox import BuildSandbox as _BS
+            _BS().cleanup(state.run_id)
+        except Exception:
+            pass
+
     # ── Gap 5: Delete checkpoint on successful completion ─────────────────────
     try:
         if redis_conn:

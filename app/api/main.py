@@ -27,6 +27,8 @@ from app.api.middleware.auth import AuthMiddleware
 from app.api.ratelimit import limiter
 from app.api.routes import forge, runs, templates
 from app.api.routes.chat import router as chat_router
+from app.api.routes.feedback import router as feedback_router
+from app.api.routes.incremental import router as incremental_router
 from app.api.routes.office import router as office_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.system import router as system_router
@@ -180,6 +182,8 @@ app.include_router(office_router, prefix="/forge", tags=["office"])
 app.include_router(chat_router, prefix="/forge", tags=["chat"])
 app.include_router(system_router, prefix="/system", tags=["system"])
 app.include_router(settings_router, prefix="/settings", tags=["settings"])
+app.include_router(feedback_router, prefix="/forge", tags=["feedback"])
+app.include_router(incremental_router, prefix="/forge/incremental", tags=["incremental"])
 
 
 @app.get("/health", tags=["health"])

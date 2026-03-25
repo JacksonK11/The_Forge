@@ -71,6 +71,9 @@ class PipelineState:
     current_layer: int = 0
     current_file: str = ""
 
+    # Blueprint validation summary (set by parse_node, shown in spec review)
+    blueprint_validation: str = ""
+
     # GitHub auto-push
     repo_name: Optional[str] = None
     push_to_github: bool = False
