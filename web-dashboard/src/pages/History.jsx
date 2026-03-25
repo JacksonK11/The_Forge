@@ -1,152 +1,158 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { listRuns } from "../api/client.js";
+import { getRuns } from "../api.js";
 
-const STATUS_BADGE = {
-  queued: "bg-gray-700 text-gray-300",
-  validating: "bg-blue-900 text-blue-300",
-  parsing: "bg-blue-900 text-blue-300",
-  confirming: "bg-yellow-900 text-yellow-300",
-  architecting: "bg-purple-900 text-purple-300",
-  generating: "bg-indigo-900 text-indigo-300",
-  packaging: "bg-teal-900 text-teal-300",
-  complete: "bg-green-900 text-green-300",
-  failed: "bg-red-900 text-red-300",
+const STATUS_TAG = {
+  queued:      "tag-gray",
+  validating:  "tag-purple",
+  parsing:     "tag-purple",
+  confirming:  "tag-amber",
+  architecting:"tag-violet",
+  generating:  "tag-cyan",
+  packaging:   "tag-cyan",
+  complete:    "tag-green",
+  failed:      "tag-red",
 };
 
-function timeAgo(isoString) {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+const FILTERS = ["", "complete", "failed", "confirming", "generating"];
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 export default function History() {
-  const [runs, setRuns] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [allRuns, setAllRuns] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   useEffect(() => {
     setLoading(true);
-    listRuns(page, 20, statusFilter || null)
-      .then((data) => {
-        setRuns(data.runs);
-        setTotal(data.total);
-        setError(null);
-      })
-      .catch((err) => setError(err.message))
+    getRuns()
+      .then((data) => setAllRuns(data || []))
+      .catch((err) => console.error("History fetch:", err))
       .finally(() => setLoading(false));
-  }, [page, statusFilter]);
+  }, []);
 
-  const totalPages = Math.ceil(total / 20);
+  const filtered = statusFilter ? allRuns.filter((r) => r.status === statusFilter) : allRuns;
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const runs = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  function handleFilter(f) { setStatusFilter(f); setPage(1); }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Build History</h1>
-          <p className="text-gray-400 text-sm mt-1">{total} total runs</p>
-        </div>
-        <div className="flex gap-2">
-          {["", "complete", "failed", "generating", "confirming"].map((s) => (
-            <button
-              key={s}
-              onClick={() => { setStatusFilter(s); setPage(1); }}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${
-                statusFilter === s
-                  ? "bg-forge-accent text-white"
-                  : "bg-forge-700 text-gray-400 hover:text-white"
-              }`}
-            >
-              {s || "All"}
-            </button>
-          ))}
-        </div>
+    <>
+      <div className="sec-title">History</div>
+      <div className="sec-sub">All builds · <span>{total} runs{statusFilter ? ` (${statusFilter})` : ""}</span></div>
+
+      {/* ── Filters ── */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {FILTERS.map((f) => (
+          <button
+            key={f || "all"}
+            onClick={() => handleFilter(f)}
+            className={`ddd-btn btn-sm ${statusFilter === f ? "btn-purple" : "btn-ghost"}`}
+          >
+            {f || "ALL"}
+          </button>
+        ))}
+        {statusFilter && (
+          <button onClick={() => handleFilter("")} className="ddd-btn btn-sm btn-ghost" style={{ marginLeft: "auto" }}>
+            ✕ CLEAR
+          </button>
+        )}
       </div>
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm">
-          {error}
-        </div>
-      )}
-
       {loading ? (
-        <div className="text-gray-400 text-center py-12">Loading...</div>
+        <div style={{ color: "var(--t3)", fontFamily: "var(--fm)", fontSize: 11, padding: "40px 0", textAlign: "center" }}>Loading history...</div>
       ) : runs.length === 0 ? (
-        <div className="text-center py-16 text-gray-500">
-          <div className="text-4xl mb-3">🔨</div>
-          <div className="text-lg font-medium text-gray-400 mb-2">No builds yet</div>
-          <Link to="/" className="text-forge-accent hover:underline text-sm">
-            Submit your first blueprint →
-          </Link>
+        <div className="ddd-card" style={{ textAlign: "center", padding: "48px" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🔨</div>
+          <div style={{ fontFamily: "var(--fd)", fontSize: 28, color: "var(--t2)", marginBottom: 8 }}>No Builds Yet</div>
+          <Link to="/build" className="ddd-btn btn-purple btn-sm" style={{ display: "inline-flex" }}>Submit your first blueprint →</Link>
         </div>
       ) : (
-        <div className="space-y-2">
-          {runs.map((run) => (
-            <Link
-              key={run.run_id}
-              to={`/runs/${run.run_id}`}
-              className="block border border-forge-600 bg-forge-800 hover:bg-forge-700 hover:border-forge-accent rounded-xl px-5 py-4 transition-all"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div>
-                    <div className="text-white font-medium text-sm">{run.title}</div>
-                    <div className="text-gray-500 text-xs font-mono mt-0.5">
-                      {run.run_id.slice(0, 8)}…
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  {run.file_count > 0 && (
-                    <div className="text-gray-400 text-xs text-right">
-                      <div className="text-white font-medium">
+        <div className="ddd-card" style={{ padding: 0, overflow: "hidden" }}>
+          <table className="ddd-tbl">
+            <thead>
+              <tr>
+                <th>Agent Name</th>
+                <th>Run ID</th>
+                <th>Status</th>
+                <th>Files</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run) => (
+                <tr key={run.run_id}>
+                  <td>
+                    <div style={{ fontWeight: 600, color: "var(--t1)" }}>{run.title}</div>
+                  </td>
+                  <td>
+                    <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+                      {run.run_id.slice(0, 12)}…
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`ddd-tag ${STATUS_TAG[run.status] || "tag-gray"}`}>
+                      {run.status.toUpperCase()}
+                    </span>
+                  </td>
+                  <td>
+                    {run.file_count > 0 ? (
+                      <span style={{ fontFamily: "var(--fm)", fontSize: 11 }}>
                         {run.files_complete}/{run.file_count}
-                      </div>
-                      <div>files</div>
-                    </div>
-                  )}
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_BADGE[run.status] || "bg-gray-700 text-gray-300"}`}>
-                    {run.status}
-                  </span>
-                  <div className="text-gray-500 text-xs w-16 text-right">
-                    {timeAgo(run.created_at)}
-                  </div>
-                </div>
-              </div>
-            </Link>
-          ))}
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td>
+                    <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+                      {timeAgo(run.created_at)}
+                    </span>
+                  </td>
+                  <td>
+                    <Link to={`/runs/${run.run_id}`} className="ddd-btn btn-ghost btn-sm">
+                      VIEW →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Pagination */}
+      {/* ── Pagination ── */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 20 }}>
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1.5 bg-forge-700 text-gray-300 rounded text-sm disabled:opacity-40 hover:bg-forge-600 transition-colors"
+            className="ddd-btn btn-ghost btn-sm"
           >
-            ←
+            ← PREV
           </button>
-          <span className="text-gray-400 text-sm">
-            Page {page} of {totalPages}
+          <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+            PAGE {page} / {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
-            className="px-3 py-1.5 bg-forge-700 text-gray-300 rounded text-sm disabled:opacity-40 hover:bg-forge-600 transition-colors"
+            className="ddd-btn btn-ghost btn-sm"
           >
-            →
+            NEXT →
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }

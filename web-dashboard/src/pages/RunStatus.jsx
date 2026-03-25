@@ -1,22 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import {
-  getRun,
-  getRunFiles,
-  approveSpec,
-  getPackageDownloadUrl,
-} from "../api/client.js";
+import { getRun, getRunFiles, approveRun, getRunPackageBlob, triggerDownload, BASE_URL } from "../api.js";
+import { useToast } from "../context/ToastContext.jsx";
 
 const STATUS_CONFIG = {
-  queued: { label: "Queued", color: "bg-gray-700 text-gray-300", icon: "⏳" },
-  validating: { label: "Validating Blueprint", color: "bg-blue-900 text-blue-300", icon: "🔍" },
-  parsing: { label: "Parsing Blueprint", color: "bg-blue-900 text-blue-300", icon: "📖" },
-  confirming: { label: "Awaiting Your Approval", color: "bg-yellow-900 text-yellow-300", icon: "✋" },
-  architecting: { label: "Mapping Architecture", color: "bg-purple-900 text-purple-300", icon: "🗺️" },
-  generating: { label: "Generating Code", color: "bg-indigo-900 text-indigo-300", icon: "⚡" },
-  packaging: { label: "Packaging", color: "bg-teal-900 text-teal-300", icon: "📦" },
-  complete: { label: "Complete", color: "bg-green-900 text-green-300", icon: "✅" },
-  failed: { label: "Failed", color: "bg-red-900 text-red-300", icon: "❌" },
+  queued:      { label: "Queued",              tag: "tag-gray",   icon: "⏳" },
+  validating:  { label: "Validating Blueprint",tag: "tag-purple", icon: "🔍" },
+  parsing:     { label: "Parsing Blueprint",   tag: "tag-purple", icon: "📖" },
+  confirming:  { label: "Awaiting Approval",   tag: "tag-amber",  icon: "✋" },
+  architecting:{ label: "Mapping Architecture",tag: "tag-violet", icon: "🗺" },
+  generating:  { label: "Generating Code",     tag: "tag-cyan",   icon: "⚡" },
+  packaging:   { label: "Packaging",           tag: "tag-cyan",   icon: "📦" },
+  complete:    { label: "Complete",            tag: "tag-green",  icon: "✅" },
+  failed:      { label: "Failed",              tag: "tag-red",    icon: "❌" },
+  planning:    { label: "Planning",            tag: "tag-purple", icon: "🧠" },
+  ready:       { label: "Ready to Execute",    tag: "tag-amber",  icon: "▶" },
+  executing:   { label: "Executing",           tag: "tag-cyan",   icon: "⚡" },
 };
 
 const LAYER_NAMES = {
@@ -29,14 +28,17 @@ const LAYER_NAMES = {
   7: "Documentation",
 };
 
+const ACTIVE_STATUSES = new Set(["queued", "validating", "parsing", "architecting", "generating", "packaging", "planning", "executing"]);
+
 export default function RunStatus() {
   const { runId } = useParams();
+  const { addToast } = useToast();
   const [run, setRun] = useState(null);
   const [files, setFiles] = useState([]);
   const [approving, setApproving] = useState(false);
-  const [approveError, setApproveError] = useState(null);
   const [expandedLayer, setExpandedLayer] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   const fetchRun = useCallback(async () => {
     try {
@@ -44,7 +46,7 @@ export default function RunStatus() {
       setRun(data);
       if (["generating", "complete", "packaging"].includes(data.status)) {
         const filesData = await getRunFiles(runId, false);
-        setFiles(filesData);
+        setFiles(Array.isArray(filesData) ? filesData : filesData?.files || []);
       }
     } catch (err) {
       console.error("Failed to fetch run:", err);
@@ -53,246 +55,230 @@ export default function RunStatus() {
     }
   }, [runId]);
 
-  // Poll every 3s while active
   useEffect(() => {
     fetchRun();
-    const activeStatuses = ["queued", "validating", "parsing", "architecting", "generating", "packaging"];
-    const interval = setInterval(() => {
-      if (run && activeStatuses.includes(run.status)) {
-        fetchRun();
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [fetchRun, run?.status]);
+    const id = setInterval(() => {
+      setRun((current) => {
+        if (current && ACTIVE_STATUSES.has(current.status)) {
+          fetchRun();
+        }
+        return current;
+      });
+    }, 4000);
+    return () => clearInterval(id);
+  }, [fetchRun]);
 
   async function handleApprove() {
     setApproving(true);
-    setApproveError(null);
     try {
-      await approveSpec(runId);
+      await approveRun(runId);
+      addToast("Build approved — pipeline resuming.", "success");
       await fetchRun();
     } catch (err) {
-      setApproveError(`Approval failed: ${err.message}`);
+      addToast(err.message || "Approval failed.", "error");
     } finally {
       setApproving(false);
     }
   }
 
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const blob = await getRunPackageBlob(runId);
+      triggerDownload(blob, `${run?.title?.replace(/\s+/g, "-").toLowerCase() || runId}.zip`);
+    } catch {
+      // Fallback: direct link
+      window.open(`${BASE_URL}/forge/runs/${runId}/package`, "_blank");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Loading run...
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 32, height: 32, border: "2px solid var(--p)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite", margin: "0 auto 12px" }} />
+          <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>Loading run...</span>
+        </div>
       </div>
     );
   }
 
   if (!run) {
     return (
-      <div className="text-center py-20">
-        <div className="text-red-400 mb-4">Run not found</div>
-        <Link to="/" className="text-forge-accent hover:underline text-sm">← Back to New Build</Link>
+      <div style={{ textAlign: "center", padding: "48px 0" }}>
+        <div style={{ fontFamily: "var(--fd)", fontSize: 36, color: "var(--red)", marginBottom: 12 }}>Run Not Found</div>
+        <Link to="/history" className="ddd-btn btn-ghost btn-sm">← Back to History</Link>
       </div>
     );
   }
 
-  const statusConfig = STATUS_CONFIG[run.status] || STATUS_CONFIG.queued;
-  const progressPct = run.file_count > 0
-    ? Math.round((run.files_complete / run.file_count) * 100)
-    : 0;
-
-  // Group files by layer
+  const cfg = STATUS_CONFIG[run.status] || STATUS_CONFIG.queued;
+  const progressPct = run.file_count > 0 ? Math.round((run.files_complete / run.file_count) * 100) : 0;
   const filesByLayer = files.reduce((acc, f) => {
-    const key = f.layer;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(f);
-    return acc;
+    const k = f.layer; if (!acc[k]) acc[k] = []; acc[k].push(f); return acc;
   }, {});
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <Link to="/history" className="text-gray-500 hover:text-gray-300 text-xs mb-2 block">
-            ← All Builds
-          </Link>
-          <h1 className="text-2xl font-bold text-white">{run.title}</h1>
-          <div className="text-gray-400 text-xs mt-1 font-mono">{runId}</div>
+    <>
+      {/* ── Header ── */}
+      <div style={{ marginBottom: 24 }}>
+        <Link to="/history" style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", textDecoration: "none", letterSpacing: "0.08em", display: "inline-block", marginBottom: 8 }}>
+          ← ALL BUILDS
+        </Link>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div className="sec-title" style={{ fontSize: 40 }}>{run.title}</div>
+            <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginTop: 2 }}>{runId}</div>
+          </div>
+          <span className={`ddd-tag ${cfg.tag}`} style={{ flexShrink: 0, marginTop: 8, padding: "4px 12px", fontSize: 11 }}>
+            {cfg.icon} {cfg.label.toUpperCase()}
+          </span>
         </div>
-        <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${statusConfig.color}`}>
-          {statusConfig.icon} {statusConfig.label}
-        </span>
       </div>
 
-      {/* Progress bar (only during generation) */}
+      {/* ── Progress ── */}
       {run.status === "generating" && run.file_count > 0 && (
-        <div>
-          <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-            <span>
-              {run.files_complete}/{run.file_count} files
-              {run.files_failed > 0 && (
-                <span className="text-red-400 ml-2">({run.files_failed} failed)</span>
-              )}
-            </span>
-            <span>{progressPct}%</span>
+        <div className="ddd-card mb24 purple">
+          <div className="card-title">Code Generation Progress</div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--fm)", fontSize: 12, marginBottom: 8 }}>
+            <span style={{ color: "var(--t2)" }}>{run.files_complete}/{run.file_count} files</span>
+            <span style={{ color: "var(--p2)", fontWeight: 700 }}>{progressPct}%</span>
           </div>
-          <div className="w-full bg-forge-700 rounded-full h-2">
-            <div
-              className="bg-forge-accent rounded-full h-2 transition-all duration-500"
-              style={{ width: `${progressPct}%` }}
-            />
+          <div className="ddd-prog">
+            <div className="ddd-prog-fill" style={{ width: `${progressPct}%`, background: "linear-gradient(90deg, var(--p), var(--p2))" }} />
           </div>
+          {run.files_failed > 0 && (
+            <div style={{ marginTop: 8, fontFamily: "var(--fm)", fontSize: 10, color: "var(--red)" }}>
+              {run.files_failed} file{run.files_failed !== 1 ? "s" : ""} failed
+            </div>
+          )}
         </div>
       )}
 
-      {/* Error message */}
+      {/* ── Error ── */}
       {run.error_message && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm">
-          <div className="font-semibold mb-1">Build Error</div>
-          {run.error_message}
+        <div className="ddd-alert red mb24">
+          <span className="alert-icon">❌</span>
+          <div className="alert-body">
+            <div className="alert-title">Build Error</div>
+            <div className="alert-sub">{run.error_message}</div>
+          </div>
         </div>
       )}
 
-      {/* Spec Confirmation panel (status = confirming) */}
-      {run.status === "confirming" && run.spec_json && (
-        <div className="border border-yellow-700 bg-yellow-900/20 rounded-xl p-6 space-y-5">
-          <div>
-            <h2 className="text-yellow-300 font-bold text-lg mb-1">Spec Ready — Review Before Building</h2>
-            <p className="text-gray-400 text-sm">
-              The Forge has parsed your blueprint. Review the plan below, then approve to start code generation.
-            </p>
+      {/* ── Spec approval ── */}
+      {(run.status === "confirming" || run.status === "spec_ready") && (
+        <div className="ddd-card amber mb24">
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: "var(--fd)", fontSize: 28, color: "var(--amber)", marginBottom: 4 }}>Spec Ready — Review Before Building</div>
+            <div style={{ fontSize: 12, color: "var(--t2)" }}>The Forge has parsed your blueprint. Review the plan below, then approve to start code generation.</div>
           </div>
 
-          {/* Spec summary */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              ["Files", run.spec_json.file_list?.length || 0],
-              ["Services", run.spec_json.fly_services?.length || 0],
-              ["Tables", run.spec_json.database_tables?.length || 0],
-              ["Routes", run.spec_json.api_routes?.length || 0],
-            ].map(([label, value]) => (
-              <div key={label} className="bg-forge-800 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-white">{value}</div>
-                <div className="text-gray-400 text-xs">{label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Services */}
-          {run.spec_json.fly_services?.length > 0 && (
-            <div>
-              <div className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Fly.io Services</div>
-              <div className="space-y-2">
-                {run.spec_json.fly_services.map((s) => (
-                  <div key={s.name} className="flex justify-between bg-forge-800 rounded px-3 py-2 text-sm">
-                    <span className="text-white font-mono">{s.name}</span>
-                    <span className="text-gray-400">{s.machine} · {s.memory}</span>
+          {run.spec_json && (
+            <>
+              <div className="g4 mb24">
+                {[
+                  ["Files",    run.spec_json.file_list?.length    ?? 0],
+                  ["Services", run.spec_json.fly_services?.length ?? 0],
+                  ["Tables",   run.spec_json.database_tables?.length ?? 0],
+                  ["Routes",   run.spec_json.api_routes?.length   ?? 0],
+                ].map(([label, value]) => (
+                  <div key={label} className="ddd-card ddd-kpi">
+                    <div className="kpi-label">{label}</div>
+                    <div className="kpi-value purple">{value}</div>
                   </div>
                 ))}
               </div>
-            </div>
+
+              {run.spec_json.fly_services?.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div className="card-title">Fly.io Services</div>
+                  {run.spec_json.fly_services.map((s) => (
+                    <div key={s.name} className="stat-row">
+                      <span style={{ fontFamily: "var(--fm)", fontSize: 11 }}>{s.name}</span>
+                      <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>{s.machine} · {s.memory}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {run.spec_json.database_tables?.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div className="card-title">Database Tables</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {run.spec_json.database_tables.map((t) => (
+                      <span key={t.name} className="ddd-tag tag-gray" style={{ fontFamily: "var(--fm)", fontSize: 10 }}>{t.name}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
-          {/* Tables */}
-          {run.spec_json.database_tables?.length > 0 && (
-            <div>
-              <div className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Database Tables</div>
-              <div className="flex flex-wrap gap-2">
-                {run.spec_json.database_tables.map((t) => (
-                  <span key={t.name} className="bg-forge-700 text-gray-300 px-3 py-1 rounded font-mono text-xs">
-                    {t.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {approveError && (
-            <div className="bg-red-900/30 border border-red-700 rounded px-3 py-2 text-red-300 text-sm">
-              {approveError}
-            </div>
-          )}
-
-          <div className="flex gap-3">
+          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
             <button
               onClick={handleApprove}
               disabled={approving}
-              className="flex-1 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+              className="ddd-btn btn-green"
+              style={{ flex: 1, justifyContent: "center", padding: "12px 16px" }}
             >
-              {approving ? "Starting..." : "✓ Approve & Build"}
+              {approving ? "⏳ STARTING..." : "✓ APPROVE & BUILD"}
             </button>
-            <Link
-              to="/"
-              className="px-6 py-3 bg-forge-700 hover:bg-forge-600 text-gray-300 font-semibold rounded-lg transition-colors text-sm text-center"
-            >
-              Edit Blueprint
+            <Link to="/build" className="ddd-btn btn-ghost" style={{ padding: "12px 24px" }}>
+              EDIT BLUEPRINT
             </Link>
           </div>
         </div>
       )}
 
-      {/* Download panel (status = complete) */}
+      {/* ── Download ── */}
       {run.status === "complete" && run.package_ready && (
-        <div className="border border-green-700 bg-green-900/20 rounded-xl p-6">
-          <h2 className="text-green-300 font-bold text-lg mb-2">Build Complete</h2>
-          <p className="text-gray-400 text-sm mb-4">
-            {run.files_complete} files generated
-            {run.files_failed > 0 && ` · ${run.files_failed} failed`}.
-            Download the ZIP, push to GitHub, run FLY_SECRETS.txt commands, and your agent is live.
-          </p>
-          <a
-            href={getPackageDownloadUrl(runId)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg transition-colors text-sm"
+        <div className="ddd-card green mb24">
+          <div style={{ fontFamily: "var(--fd)", fontSize: 28, color: "var(--green)", marginBottom: 4 }}>Build Complete</div>
+          <div style={{ fontSize: 12, color: "var(--t2)", marginBottom: 16 }}>
+            {run.files_complete} files generated{run.files_failed > 0 ? ` · ${run.files_failed} failed` : ""}. Download the ZIP, push to GitHub, run FLY_SECRETS.txt commands, and your agent is live.
+          </div>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="ddd-btn btn-green"
+            style={{ padding: "12px 28px" }}
           >
-            Download Package (.zip) →
-          </a>
+            {downloading ? "⏳ PREPARING..." : "⬇ DOWNLOAD PACKAGE (.zip)"}
+          </button>
         </div>
       )}
 
-      {/* File list (during/after generation) */}
+      {/* ── File tree ── */}
       {files.length > 0 && (
-        <div>
-          <h2 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">
-            Generated Files
-          </h2>
-          <div className="space-y-2">
+        <div className="ddd-card">
+          <div className="card-title">Generated Files — {files.length} total</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {Object.entries(filesByLayer)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([layer, layerFiles]) => (
-                <div key={layer} className="border border-forge-600 rounded-lg overflow-hidden">
+                <div key={layer} style={{ border: "1px solid var(--line2)", borderRadius: 6, overflow: "hidden" }}>
                   <button
                     onClick={() => setExpandedLayer(expandedLayer === layer ? null : layer)}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-forge-800 hover:bg-forge-700 transition-colors text-left"
+                    style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--bg4)", cursor: "pointer", border: "none", color: "var(--t1)" }}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-500 text-xs font-mono">L{layer}</span>
-                      <span className="text-white text-sm font-medium">
-                        {LAYER_NAMES[layer] || `Layer ${layer}`}
-                      </span>
-                      <span className="text-gray-400 text-xs">
-                        {layerFiles.filter((f) => f.status === "complete").length}/{layerFiles.length} files
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>L{layer}</span>
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>{LAYER_NAMES[layer] || `Layer ${layer}`}</span>
+                      <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+                        {layerFiles.filter((f) => f.status === "complete").length}/{layerFiles.length}
                       </span>
                     </div>
-                    <span className="text-gray-500 text-xs">{expandedLayer === layer ? "▲" : "▼"}</span>
+                    <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>{expandedLayer === layer ? "▲" : "▼"}</span>
                   </button>
                   {expandedLayer === layer && (
-                    <div className="divide-y divide-forge-600">
+                    <div>
                       {layerFiles.map((f) => (
-                        <div key={f.file_id} className="px-4 py-2.5 flex items-center justify-between bg-forge-900">
-                          <span className="font-mono text-xs text-gray-300">{f.file_path}</span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              f.status === "complete"
-                                ? "bg-green-900/50 text-green-400"
-                                : f.status === "failed"
-                                ? "bg-red-900/50 text-red-400"
-                                : f.status === "generating"
-                                ? "bg-blue-900/50 text-blue-400"
-                                : "bg-gray-800 text-gray-500"
-                            }`}
-                          >
+                        <div key={f.file_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid var(--line)", background: "var(--bg3)" }}>
+                          <span style={{ fontFamily: "var(--fm)", fontSize: 11, color: "var(--t2)" }}>{f.file_path}</span>
+                          <span className={`ddd-tag ${f.status === "complete" ? "tag-green" : f.status === "failed" ? "tag-red" : f.status === "generating" ? "tag-cyan" : "tag-gray"}`}>
                             {f.status}
                           </span>
                         </div>
@@ -304,6 +290,6 @@ export default function RunStatus() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
