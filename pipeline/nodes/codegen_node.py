@@ -20,10 +20,25 @@ Graceful file failure (Safeguard 2):
   the developer knows exactly which files need manual attention. The run
   completes rather than failing entirely — failed files are listed in the
   final Telegram notification.
+
+Safeguard gaps (added):
+  Gap 1 — Cross-reference imports against already-generated files after each save.
+           If the current file imports a symbol from an already-generated file
+           and that symbol is absent, the source file is re-generated once.
+  Gap 3 — Non-determinism guard for large files (>800 estimated lines).
+           Compares function/class count against a Redis baseline of recent
+           similar-complexity builds. >20% below average → re-evaluate strictly.
+  Gap 5 — Redis checkpoint every CHECKPOINT_INTERVAL files.
+           On worker restart, the checkpoint is loaded and already-completed
+           files are skipped, limiting replay loss to ≤5 files.
 """
+
+import json
+import re
 
 from loguru import logger
 
+from config.settings import settings
 from memory.database import get_session
 from memory.models import FileStatus, ForgeFile, ForgeRun
 from pipeline.nodes.layer_generator import generate_file_for_layer
@@ -31,6 +46,17 @@ from pipeline.pipeline import PipelineState
 
 TOKEN_HARD_CAP = 500_000       # Hard kill at ≈A$15 (Sonnet) / ≈A$75 (Opus)
 COST_CHECK_INTERVAL = 5        # Query DB every N files (reduces DB load)
+
+# ── Gap 5 checkpoint constants ────────────────────────────────────────────────
+CHECKPOINT_INTERVAL = 5                  # Save to Redis every N files
+_CHECKPOINT_TTL_SECONDS = 4 * 3600      # Expire stale checkpoints after 4 hours
+_CHECKPOINT_PREFIX = "forge:checkpoint:"
+
+# ── Gap 3 complexity constants ────────────────────────────────────────────────
+_LARGE_FILE_LINE_THRESHOLD = 800        # Files ≥ this many estimated lines get non-determinism check
+_COMPLEXITY_PREFIX = "forge:complexity:"
+_COMPLEXITY_MAX_ENTRIES = 10            # Ring buffer size per file basename
+_NONDETERMINISM_THRESHOLD = 0.20        # >20% below average → re-evaluate
 
 _PLACEHOLDER_TEMPLATE = """\
 # ══════════════════════════════════════════════════════════════════
@@ -88,6 +114,35 @@ async def codegen_node(state: PipelineState) -> PipelineState:
     total_files = len(file_manifest)
     processed = 0
 
+    # ── Gap 5: Load Redis checkpoint — skip already-completed files on restart ─
+    redis_conn = _get_redis_conn()
+    checkpoint = _load_checkpoint(state.run_id, redis_conn)
+    already_done: set[str] = set()
+    if checkpoint:
+        already_done = set(checkpoint.get("completed_paths", []))
+        if already_done:
+            restored = await _restore_completed_content(state.run_id, already_done)
+            state.generated_files.update(restored)
+            processed = checkpoint.get("total_processed", len(already_done))
+            logger.info(
+                f"[{state.run_id}] Checkpoint loaded: resuming from file "
+                f"{processed}/{total_files} — skipping {len(already_done)} completed files"
+            )
+            try:
+                from app.api.services.notify import _send
+                await _send(
+                    f"<b>The Forge — Build Resumed from Checkpoint</b>\n\n"
+                    f"<b>{state.title}</b>\n"
+                    f"Resuming interrupted build from file "
+                    f"<b>{processed}/{total_files}</b>.\n"
+                    f"Skipping {len(already_done)} already-completed files."
+                )
+            except Exception:
+                pass
+
+    # Track source files we've already attempted to re-generate (Gap 1 guard)
+    cross_ref_regenerated: set[str] = set()
+
     for layer_num in sorted(layers.keys()):
         layer_files = layers[layer_num]
         logger.info(
@@ -98,6 +153,11 @@ async def codegen_node(state: PipelineState) -> PipelineState:
         for file_entry in layer_files:
             file_path = file_entry["path"]
             state.current_file = file_path
+
+            # ── Gap 5: Skip files restored from checkpoint ────────────────────
+            if file_path in already_done:
+                logger.debug(f"[{state.run_id}] Checkpoint skip: {file_path}")
+                continue
 
             # ── Token hard cap check (every COST_CHECK_INTERVAL files) ────────
             if processed % COST_CHECK_INTERVAL == 0 and processed > 0:
@@ -143,6 +203,60 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             if content is not None:
                 state.generated_files[file_path] = content
                 await _mark_file_complete(state.run_id, file_path, content)
+
+                # ── Gap 1: Cross-reference imports against already-generated files ──
+                missing = _cross_reference_imports(
+                    file_path, content, state.generated_files, state.run_id
+                )
+                for source_file, missing_names in missing:
+                    if source_file not in cross_ref_regenerated:
+                        cross_ref_regenerated.add(source_file)
+                        source_entry = next(
+                            (e for e in file_manifest if e["path"] == source_file), None
+                        )
+                        if source_entry:
+                            logger.warning(
+                                f"[{state.run_id}] Cross-ref: re-generating {source_file} "
+                                f"— missing exports {missing_names} needed by {file_path}"
+                            )
+                            try:
+                                fixed = await generate_file_for_layer(
+                                    run_id=state.run_id,
+                                    file_entry=source_entry,
+                                    spec=state.spec,
+                                    generated_files=state.generated_files,
+                                )
+                                if fixed:
+                                    state.generated_files[source_file] = fixed
+                                    await _mark_file_complete(
+                                        state.run_id, source_file, fixed
+                                    )
+                            except Exception as regen_exc:
+                                logger.error(
+                                    f"[{state.run_id}] Cross-ref re-gen failed for "
+                                    f"{source_file}: {regen_exc}"
+                                )
+
+                # ── Gap 3: Non-determinism guard for large files ───────────────
+                estimated_lines = content.count("\n") + 1
+                if estimated_lines >= _LARGE_FILE_LINE_THRESHOLD:
+                    _check_and_store_complexity(
+                        file_path, content, redis_conn, state.run_id
+                    )
+
+                # ── Gap 5: Save checkpoint every CHECKPOINT_INTERVAL files ─────
+                if (processed + 1) % CHECKPOINT_INTERVAL == 0:
+                    _save_checkpoint(
+                        run_id=state.run_id,
+                        completed_paths=list(
+                            p for p in state.generated_files
+                            if p not in state.generation_failed_files
+                        ),
+                        current_layer=layer_num,
+                        total_processed=processed + 1,
+                        redis_conn=redis_conn,
+                    )
+
             else:
                 # Safeguard 2: save placeholder, track warning, continue build
                 purpose = file_entry.get("description", f"File at {file_path}")
@@ -181,6 +295,13 @@ async def codegen_node(state: PipelineState) -> PipelineState:
     except Exception as exc:
         logger.warning(f"[{state.run_id}] Test generation failed (non-blocking): {exc}")
 
+    # ── Gap 5: Delete checkpoint on successful completion ─────────────────────
+    try:
+        if redis_conn:
+            redis_conn.delete(f"{_CHECKPOINT_PREFIX}{state.run_id}")
+    except Exception:
+        pass
+
     logger.info(
         f"[{state.run_id}] Code generation complete: "
         f"{len(state.generated_files) - len(state.generation_failed_files)} generated, "
@@ -188,6 +309,227 @@ async def codegen_node(state: PipelineState) -> PipelineState:
     )
     state.current_stage = "packaging"
     return state
+
+
+# ── Gap 5: Redis checkpoint helpers ──────────────────────────────────────────
+
+
+def _get_redis_conn():
+    """Return a Redis connection or None if unavailable (non-blocking)."""
+    try:
+        from redis import Redis
+        return Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+    except Exception:
+        return None
+
+
+def _save_checkpoint(
+    run_id: str,
+    completed_paths: list[str],
+    current_layer: int,
+    total_processed: int,
+    redis_conn,
+) -> None:
+    """Save a build checkpoint to Redis. Silent on failure."""
+    if not redis_conn:
+        return
+    try:
+        from datetime import datetime, timezone
+        payload = json.dumps({
+            "run_id": run_id,
+            "completed_paths": completed_paths,
+            "current_layer": current_layer,
+            "total_processed": total_processed,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        key = f"{_CHECKPOINT_PREFIX}{run_id}"
+        redis_conn.setex(key, _CHECKPOINT_TTL_SECONDS, payload)
+        logger.debug(
+            f"[{run_id}] Checkpoint saved: {len(completed_paths)} files, "
+            f"layer={current_layer}, processed={total_processed}"
+        )
+    except Exception as exc:
+        logger.debug(f"[{run_id}] Checkpoint save failed (non-blocking): {exc}")
+
+
+def _load_checkpoint(run_id: str, redis_conn) -> dict | None:
+    """Load a checkpoint from Redis. Returns None if missing or expired."""
+    if not redis_conn:
+        return None
+    try:
+        from datetime import datetime, timedelta, timezone
+        key = f"{_CHECKPOINT_PREFIX}{run_id}"
+        raw = redis_conn.get(key)
+        if not raw:
+            return None
+        data = json.loads(raw)
+        # Ignore checkpoints older than 4 hours
+        ts = datetime.fromisoformat(data.get("timestamp", "1970-01-01T00:00:00+00:00"))
+        if datetime.now(timezone.utc) - ts > timedelta(hours=4):
+            redis_conn.delete(key)
+            return None
+        return data
+    except Exception as exc:
+        logger.debug(f"[{run_id}] Checkpoint load failed (non-blocking): {exc}")
+        return None
+
+
+async def _restore_completed_content(
+    run_id: str,
+    completed_paths: set[str],
+) -> dict[str, str]:
+    """Load content of already-completed files from DB to rebuild state.generated_files."""
+    restored: dict[str, str] = {}
+    if not completed_paths:
+        return restored
+    try:
+        from sqlalchemy import select
+        async with get_session() as session:
+            result = await session.execute(
+                select(ForgeFile.file_path, ForgeFile.content).where(
+                    ForgeFile.run_id == run_id,
+                    ForgeFile.file_path.in_(list(completed_paths)),
+                    ForgeFile.status == FileStatus.COMPLETE.value,
+                    ForgeFile.content.isnot(None),
+                )
+            )
+            for file_path, content in result.all():
+                restored[file_path] = content
+        logger.debug(
+            f"[{run_id}] Restored {len(restored)}/{len(completed_paths)} files from DB"
+        )
+    except Exception as exc:
+        logger.warning(f"[{run_id}] Content restore failed (non-blocking): {exc}")
+    return restored
+
+
+# ── Gap 1: Cross-reference imports helper ─────────────────────────────────────
+
+
+def _cross_reference_imports(
+    file_path: str,
+    content: str,
+    generated_files: dict[str, str],
+    run_id: str,
+) -> list[tuple[str, list[str]]]:
+    """
+    Parse the current file's Python import statements and check that every
+    symbol imported from an already-generated file actually exists there.
+
+    Returns a list of (source_file_path, [missing_name, ...]) tuples.
+    Only applies to local module imports — stdlib/third-party imports are ignored.
+    """
+    if not file_path.endswith(".py"):
+        return []
+
+    # Match: from some.module import Name1, Name2 (or Name as Alias)
+    import_re = re.compile(r"^from\s+([\w.]+)\s+import\s+(.+)$", re.MULTILINE)
+    missing: list[tuple[str, list[str]]] = []
+
+    for match in import_re.finditer(content):
+        module_str = match.group(1).strip()
+        names_str = match.group(2).strip()
+
+        # Convert dotted module path to file path: memory.models → memory/models.py
+        source_file = module_str.replace(".", "/") + ".py"
+        if source_file not in generated_files:
+            continue  # External dependency — skip
+
+        source_content = generated_files[source_file]
+
+        # Parse imported names, handling "Name as Alias" and trailing comments
+        raw_names = re.sub(r"\(|\)", "", names_str).split(",")
+        names = [
+            n.strip().split(" as ")[0].strip().split("#")[0].strip()
+            for n in raw_names
+        ]
+        names = [n for n in names if n and n != "*"]
+
+        missing_names = []
+        for name in names:
+            # Check for: class Name, def name, or Name = at module level
+            if not re.search(
+                rf"(?:^|\n)\s*(?:class|def)\s+{re.escape(name)}\b"
+                rf"|(?:^|\n){re.escape(name)}\s*=",
+                source_content,
+            ):
+                missing_names.append(name)
+
+        if missing_names:
+            logger.warning(
+                f"[{run_id}] Cross-ref: {file_path} imports {missing_names} "
+                f"from {source_file} — not found in generated content"
+            )
+            missing.append((source_file, missing_names))
+
+    return missing
+
+
+# ── Gap 3: Non-determinism guard helpers ──────────────────────────────────────
+
+
+def _count_callables(content: str) -> int:
+    """Count top-level and method-level def/class definitions as a complexity proxy."""
+    return len(re.findall(r"^\s*(?:def |class |async def )", content, re.MULTILINE))
+
+
+def _check_and_store_complexity(
+    file_path: str,
+    content: str,
+    redis_conn,
+    run_id: str,
+) -> None:
+    """
+    Compare this file's callable count against the Redis baseline for similar files.
+    If >20% below average of last 3 entries → log warning and mark for strict re-eval.
+    Always stores the current count in the rolling Redis buffer.
+    """
+    if not redis_conn:
+        return
+    basename = file_path.split("/")[-1]
+    key = f"{_COMPLEXITY_PREFIX}{basename}"
+    current_count = _count_callables(content)
+
+    try:
+        # Load existing entries
+        raw = redis_conn.get(key)
+        entries: list[dict] = json.loads(raw) if raw else []
+
+        if len(entries) >= 3:
+            avg = sum(e["count"] for e in entries[-3:]) / 3
+            if avg > 0 and current_count < avg * (1 - _NONDETERMINISM_THRESHOLD):
+                logger.warning(
+                    f"[{run_id}] Non-determinism guard: {file_path} has "
+                    f"{current_count} callables vs baseline avg {avg:.1f} "
+                    f"({(1 - current_count / avg) * 100:.0f}% below — threshold "
+                    f"{int(_NONDETERMINISM_THRESHOLD * 100)}%)"
+                )
+                # Store warning in run metadata for final notification
+                try:
+                    redis_conn.rpush(
+                        f"forge:nondeterminism:{run_id}",
+                        json.dumps({
+                            "file": file_path,
+                            "count": current_count,
+                            "baseline_avg": round(avg, 1),
+                        }),
+                    )
+                    redis_conn.expire(f"forge:nondeterminism:{run_id}", 86400)
+                except Exception:
+                    pass
+
+        # Append current count to rolling buffer
+        from datetime import datetime, timezone
+        entries.append({
+            "count": current_count,
+            "run_id": run_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        entries = entries[-_COMPLEXITY_MAX_ENTRIES:]
+        redis_conn.setex(key, 30 * 86400, json.dumps(entries))  # 30-day TTL
+
+    except Exception as exc:
+        logger.debug(f"[{run_id}] Complexity check failed (non-blocking): {exc}")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────

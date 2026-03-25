@@ -26,7 +26,12 @@ from sqlalchemy import func, select
 from app.api.services.notify import notify_performance_degradation
 from config.settings import settings
 from memory.database import get_session
-from memory.models import ForgeRun, PerformanceMetric, RunStatus
+from memory.models import BuildCost, ForgeRun, PerformanceMetric, RunStatus
+
+# Sydney time = UTC+10 (AEST) / UTC+11 (AEDT).
+# Daily cost check fires at 23:00 UTC which is 09:00 AEST (or 10:00 AEDT).
+DAILY_COST_ALERT_AUD = 20.0          # Alert if yesterday > A$20
+MONTHLY_PROJECTION_ALERT_AUD = 100.0 # Alert if projected month > A$100
 
 DEGRADATION_THRESHOLD = 0.15  # 15% degradation triggers alert
 
@@ -192,6 +197,126 @@ async def _store_metric(name: str, value: float) -> None:
     """Persist a KPI value to the performance_metrics table."""
     async with get_session() as session:
         session.add(PerformanceMetric(metric_name=name, metric_value=value))
+
+
+async def run_daily_cost_check() -> dict:
+    """
+    Query yesterday's total AUD spend from the build_costs table.
+    Fires Telegram alerts if:
+      - Yesterday's spend > A$20
+      - Month-to-date projected to exceed A$100
+
+    Uses the internal build_costs table — Anthropic has no public billing API.
+    Returns a dict with cost summary for logging.
+    """
+    now = datetime.now(timezone.utc)
+    yesterday_start = (now - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday_end = yesterday_start + timedelta(days=1)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    days_in_month = 31  # Conservative estimate for projection
+    days_elapsed = max((now - month_start).days, 1)
+
+    summary: dict = {}
+
+    try:
+        async with get_session() as session:
+            # Yesterday's total spend
+            result = await session.execute(
+                select(
+                    func.coalesce(func.sum(BuildCost.cost_aud), 0.0).label("total_aud"),
+                    func.count(BuildCost.id).label("api_calls"),
+                ).where(
+                    BuildCost.created_at >= yesterday_start,
+                    BuildCost.created_at < yesterday_end,
+                )
+            )
+            row = result.one()
+            yesterday_aud = float(row.total_aud)
+            yesterday_calls = int(row.api_calls)
+
+            # Month-to-date spend
+            mtd_result = await session.execute(
+                select(func.coalesce(func.sum(BuildCost.cost_aud), 0.0)).where(
+                    BuildCost.created_at >= month_start,
+                )
+            )
+            mtd_aud = float(mtd_result.scalar_one() or 0.0)
+
+            # Projected end-of-month spend
+            daily_rate = mtd_aud / days_elapsed
+            projected_month_aud = daily_rate * days_in_month
+
+            # Per-run breakdown for yesterday (for alert detail)
+            breakdown_result = await session.execute(
+                select(
+                    BuildCost.run_id,
+                    func.sum(BuildCost.cost_aud).label("run_total"),
+                ).where(
+                    BuildCost.created_at >= yesterday_start,
+                    BuildCost.created_at < yesterday_end,
+                    BuildCost.run_id.isnot(None),
+                ).group_by(BuildCost.run_id).order_by(
+                    func.sum(BuildCost.cost_aud).desc()
+                ).limit(5)
+            )
+            top_runs = [
+                {"run_id": r.run_id, "cost_aud": round(float(r.run_total), 2)}
+                for r in breakdown_result.all()
+            ]
+
+        summary = {
+            "yesterday_aud": round(yesterday_aud, 2),
+            "yesterday_calls": yesterday_calls,
+            "mtd_aud": round(mtd_aud, 2),
+            "projected_month_aud": round(projected_month_aud, 2),
+            "top_runs": top_runs,
+        }
+
+        logger.info(
+            f"Daily cost check: yesterday=A${yesterday_aud:.2f} "
+            f"MTD=A${mtd_aud:.2f} projected=A${projected_month_aud:.2f}/mo"
+        )
+
+        # ── Alert: yesterday exceeded threshold ───────────────────────────────
+        if yesterday_aud > DAILY_COST_ALERT_AUD:
+            run_lines = "\n".join(
+                f"  • <code>{r['run_id'][:8]}</code>: A${r['cost_aud']:.2f}"
+                for r in top_runs
+            ) or "  (no breakdown available)"
+            try:
+                from app.api.services.notify import _send
+                await _send(
+                    f"<b>The Forge — Daily Cost Alert</b>\n\n"
+                    f"Yesterday's spend: <b>A${yesterday_aud:.2f}</b> "
+                    f"(threshold: A${DAILY_COST_ALERT_AUD:.0f})\n"
+                    f"API calls: <b>{yesterday_calls}</b>\n\n"
+                    f"<b>Top runs:</b>\n{run_lines}\n\n"
+                    f"Month-to-date: <b>A${mtd_aud:.2f}</b>\n"
+                    f"Projected month: <b>A${projected_month_aud:.2f}</b>"
+                )
+            except Exception as exc:
+                logger.error(f"Daily cost alert send failed: {exc}")
+
+        # ── Alert: monthly projection exceeded threshold ───────────────────────
+        elif projected_month_aud > MONTHLY_PROJECTION_ALERT_AUD:
+            try:
+                from app.api.services.notify import _send
+                await _send(
+                    f"<b>The Forge — Monthly Cost Projection Alert</b>\n\n"
+                    f"Projected end-of-month: <b>A${projected_month_aud:.2f}</b> "
+                    f"(threshold: A${MONTHLY_PROJECTION_ALERT_AUD:.0f})\n\n"
+                    f"Month-to-date ({days_elapsed} days): <b>A${mtd_aud:.2f}</b>\n"
+                    f"Daily rate: <b>A${daily_rate:.2f}/day</b>"
+                )
+            except Exception as exc:
+                logger.error(f"Monthly projection alert send failed: {exc}")
+
+    except Exception as exc:
+        logger.error(f"Daily cost check failed: {exc}")
+
+    return summary
 
 
 def _calculate_degradation(

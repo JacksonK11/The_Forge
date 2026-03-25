@@ -86,6 +86,16 @@ def start_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=3600,
     )
 
+    # ── Daily cost monitor: 23:00 UTC = 09:00 AEST (Sydney) ──────────────────
+    scheduler.add_job(
+        _run_daily_cost_check,
+        trigger=CronTrigger(hour=23, minute=0),
+        id="daily_cost_check",
+        name="Daily Cost Monitor",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     # ── Agent health polling: every 60 seconds ────────────────────────────────
     scheduler.add_job(
         poll_agent_health,
@@ -105,6 +115,17 @@ def start_scheduler() -> AsyncIOScheduler:
 
 
 # ── Job implementations ───────────────────────────────────────────────────────
+
+
+async def _run_daily_cost_check() -> None:
+    """Run the daily cost check and fire Telegram alerts if thresholds exceeded."""
+    logger.info("Scheduled job: daily_cost_check")
+    try:
+        from monitoring.performance_monitor import run_daily_cost_check
+        summary = await run_daily_cost_check()
+        logger.info(f"Daily cost check complete: {summary}")
+    except Exception as exc:
+        logger.error(f"Daily cost check job failed: {exc}")
 
 
 async def _run_performance_check() -> None:

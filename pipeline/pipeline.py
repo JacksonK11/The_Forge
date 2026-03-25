@@ -462,12 +462,127 @@ async def _update_run_status(
     await _safe_db_write(run_id, values)
 
 
+# ── Gap 2: Network resilience helpers ────────────────────────────────────────
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """
+    Return True if the exception looks like a transient network failure
+    (ENOTFOUND, connection refused, timeout, DNS error, etc.).
+    Non-network errors (ValueError, RuntimeError, etc.) return False
+    so they propagate immediately without wasting retry time.
+    """
+    exc_type_name = f"{type(exc).__module__}.{type(exc).__name__}"
+    # Explicit known network exception types
+    network_types = {
+        "httpx.ConnectError", "httpx.TimeoutException", "httpx.NetworkError",
+        "httpx.RemoteProtocolError", "httpx.ReadTimeout", "httpx.ConnectTimeout",
+        "anthropic.APIConnectionError", "anthropic.APITimeoutError",
+        "redis.exceptions.ConnectionError", "redis.exceptions.TimeoutError",
+        "asyncpg.exceptions._base.PostgresConnectionError",
+        "builtins.ConnectionError", "builtins.TimeoutError",
+        "builtins.OSError", "socket.gaierror", "socket.herror",
+    }
+    if exc_type_name in network_types:
+        return True
+    # Heuristic: check message for common network error strings
+    msg = str(exc).lower()
+    network_signals = (
+        "enotfound", "econnrefused", "econnreset", "etimedout",
+        "connection refused", "connection reset", "name resolution",
+        "network unreachable", "no route to host", "host unreachable",
+        "temporary failure in name resolution", "getaddrinfo failed",
+    )
+    return any(sig in msg for sig in network_signals)
+
+
+async def _reset_run_for_network_retry(run_id: str) -> None:
+    """
+    Reset a run from 'failed' back to 'generating' so the pipeline's
+    forward-only guard allows a retry after a transient network error.
+    Only resets if current status is 'failed' — never clobbers active runs.
+    """
+    try:
+        from sqlalchemy import update
+        async with get_session() as session:
+            await session.execute(
+                update(ForgeRun)
+                .where(
+                    ForgeRun.run_id == run_id,
+                    ForgeRun.status == RunStatus.FAILED.value,
+                )
+                .values(status=RunStatus.GENERATING.value, error_message=None)
+            )
+    except Exception as exc:
+        logger.warning(f"[{run_id}] Status reset for network retry failed: {exc}")
+
+
 # ── RQ-compatible sync wrappers ───────────────────────────────────────────────
 
 
 def run_pipeline_sync(run_id: str, resume_from: Optional[str] = None) -> None:
-    """Sync wrapper for RQ. Runs the async pipeline in a new event loop."""
-    asyncio.run(run_pipeline(run_id, resume_from))
+    """
+    Sync wrapper for RQ with network resilience.
+
+    Retries up to 3 times (60s pause between attempts) on transient network
+    errors (ENOTFOUND, timeout, connection refused, etc.). After all retries
+    are exhausted, the run status is reset to 'generating' so the orphan
+    detector can auto-resume once connectivity is restored, then a Telegram
+    alert is sent and the job is marked failed by RQ.
+    """
+    import time as _time
+
+    _NETWORK_RETRY_DELAY = 60   # seconds between retries
+    _MAX_NETWORK_RETRIES = 3    # total retries (4 attempts including first)
+    last_network_exc: Optional[Exception] = None
+
+    for attempt in range(1, _MAX_NETWORK_RETRIES + 2):  # 1 … 4
+        try:
+            asyncio.run(run_pipeline(run_id, resume_from))
+            return  # Success — exit normally
+        except Exception as exc:
+            if not _is_network_error(exc):
+                raise  # Non-network error — propagate immediately
+
+            last_network_exc = exc
+            if attempt > _MAX_NETWORK_RETRIES:
+                break  # Exhausted — fall through to failure handling
+
+            logger.warning(
+                f"[{run_id}] Network error (attempt {attempt}/{_MAX_NETWORK_RETRIES}): "
+                f"{type(exc).__name__}: {exc}. "
+                f"Pausing {_NETWORK_RETRY_DELAY}s before retry..."
+            )
+            _time.sleep(_NETWORK_RETRY_DELAY)
+            # Reset status so the pipeline's forward-only guard allows the retry
+            asyncio.run(_reset_run_for_network_retry(run_id))
+            # Always resume from the generating checkpoint on network retry
+            if resume_from is None:
+                resume_from = "generating"
+
+    # ── All retries exhausted ────────────────────────────────────────────────
+    logger.error(
+        f"[{run_id}] Build paused: network error persisted after "
+        f"{_MAX_NETWORK_RETRIES} retries. Last error: {last_network_exc}"
+    )
+    # Reset to 'generating' so the orphan detector re-queues when connectivity returns
+    asyncio.run(_reset_run_for_network_retry(run_id))
+    try:
+        from app.api.services.notify import _send
+        asyncio.run(_send(
+            f"<b>The Forge — Network Outage</b>\n\n"
+            f"Run ID: <code>{run_id}</code>\n"
+            f"Build paused after {_MAX_NETWORK_RETRIES} network retries.\n"
+            f"Error: <code>{last_network_exc}</code>\n\n"
+            f"The build will auto-resume when connectivity is restored."
+        ))
+    except Exception:
+        pass
+    raise RuntimeError(
+        f"Build paused: network error persisted for {_MAX_NETWORK_RETRIES} retries. "
+        f"Will auto-resume when connectivity restores. "
+        f"Last error: {last_network_exc}"
+    )
 
 
 def regenerate_file_sync(run_id: str, file_path: str) -> None:
