@@ -81,6 +81,8 @@ async def generate_file_for_layer(
     file_entry: dict,
     spec: dict,
     generated_files: dict[str, str],
+    dependency_manifest: str = "",
+    diagnosis_context: str = "",
 ) -> str | None:
     """
     Generate a single file. Returns content string on success, None on total failure.
@@ -88,6 +90,13 @@ async def generate_file_for_layer(
     Complex files (large/orchestration-heavy) bypass the attempt loop and go
     straight to split generation. Normal files use the attempt loop with an
     automatic split fallback on TruncatedOutputError.
+
+    Args:
+        dependency_manifest: Optional formatted manifest of prior-layer exports.
+                             Injected before file instructions so Claude knows
+                             exactly which names and paths already exist.
+        diagnosis_context:   Optional build-doctor repair instructions injected
+                             at the top of the prompt for targeted regeneration.
 
     Returns None if all strategies fail — codegen_node will save a placeholder.
     """
@@ -116,6 +125,8 @@ async def generate_file_for_layer(
             generated_files=generated_files,
             meta_rules=meta_rules,
             knowledge_context=knowledge_context,
+            dependency_manifest=dependency_manifest,
+            diagnosis_context=diagnosis_context,
         )
         if content:
             evaluation = await _evaluate_file(file_path, purpose, content, run_id)
@@ -135,20 +146,32 @@ async def generate_file_for_layer(
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             extra_context = ""
+
+            # Build-doctor diagnosis context takes priority at the top
+            if diagnosis_context:
+                extra_context = f"CRITICAL BUILD DOCTOR INSTRUCTIONS:\n{diagnosis_context}\n\n"
+
             if last_evaluation and last_evaluation.get("issues"):
                 issues_text = "\n".join(
                     f"- [{i['severity'].upper()}] {i['issue']} → Fix: {i['fix']}"
                     for i in last_evaluation["issues"]
                 )
-                extra_context = (
+                extra_context += (
                     f"\nPREVIOUS ATTEMPT FAILED EVALUATION. Fix these issues:\n{issues_text}\n"
                 )
+
+            # Dependency manifest prepended before file instructions
+            manifest_prefix = (
+                f"{dependency_manifest}\n\nNow generate the following file...\n\n"
+                if dependency_manifest
+                else ""
+            )
 
             prompt = build_codegen_prompt(
                 spec=spec,
                 file_path=file_path,
                 layer=layer,
-                purpose=purpose + extra_context,
+                purpose=manifest_prefix + purpose + extra_context,
                 previous_files=generated_files,
                 meta_rules=meta_rules,
                 knowledge_context=knowledge_context,
@@ -311,6 +334,8 @@ async def _generate_file_split(
     generated_files: dict[str, str],
     meta_rules: list[str],
     knowledge_context: str,
+    dependency_manifest: str = "",
+    diagnosis_context: str = "",
 ) -> str | None:
     """
     Generate a complex file in two sequential Claude calls.
@@ -326,11 +351,18 @@ async def _generate_file_split(
     layer = file_entry.get("layer", 1)
     purpose = file_entry.get("description", f"File at {file_path}")
 
+    # Inject dependency manifest and diagnosis context into purpose
+    purpose_prefix = ""
+    if diagnosis_context:
+        purpose_prefix += f"CRITICAL BUILD DOCTOR INSTRUCTIONS:\n{diagnosis_context}\n\n"
+    if dependency_manifest:
+        purpose_prefix += f"{dependency_manifest}\n\nNow generate the following file...\n\n"
+
     base_prompt = build_codegen_prompt(
         spec=spec,
         file_path=file_path,
         layer=layer,
-        purpose=purpose,
+        purpose=purpose_prefix + purpose,
         previous_files=generated_files,
         meta_rules=meta_rules,
         knowledge_context=knowledge_context,

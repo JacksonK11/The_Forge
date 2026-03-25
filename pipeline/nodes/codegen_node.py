@@ -43,6 +43,8 @@ from memory.database import get_session
 from memory.models import FileStatus, ForgeFile, ForgeRun
 from pipeline.nodes.layer_generator import generate_file_for_layer
 from pipeline.pipeline import PipelineState
+from pipeline.services.build_doctor import BuildDoctor
+from pipeline.services.dependency_manifest import DependencyManifest
 
 TOKEN_HARD_CAP = 500_000       # Hard kill at ≈A$15 (Sonnet) / ≈A$75 (Opus)
 COST_CHECK_INTERVAL = 5        # Query DB every N files (reduces DB load)
@@ -114,6 +116,12 @@ async def codegen_node(state: PipelineState) -> PipelineState:
     total_files = len(file_manifest)
     processed = 0
 
+    # ── Self-healing services ─────────────────────────────────────────────────
+    doctor = BuildDoctor()
+    manifest_builder = DependencyManifest()
+    cumulative_manifest: dict = {"files": []}
+    file_reports: list[dict] = []
+
     # ── Gap 5: Load Redis checkpoint — skip already-completed files on restart ─
     redis_conn = _get_redis_conn()
     checkpoint = _load_checkpoint(state.run_id, redis_conn)
@@ -149,6 +157,9 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             f"[{state.run_id}] Generating layer {layer_num}: {len(layer_files)} files"
         )
         state.current_layer = layer_num
+
+        # Track files generated in this layer for manifest building
+        layer_generated_files: dict[str, str] = {}
 
         for file_entry in layer_files:
             file_path = file_entry["path"]
@@ -188,20 +199,56 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                         f"Completed {processed}/{total_files} files before kill."
                     )
 
-            # ── Generate file ─────────────────────────────────────────────────
-            try:
-                content = await generate_file_for_layer(
-                    run_id=state.run_id,
-                    file_entry=file_entry,
-                    spec=state.spec,
-                    generated_files=state.generated_files,
-                )
-            except Exception as exc:
-                logger.error(f"[{state.run_id}] EXCEPTION generating {file_path}: {exc}")
-                content = None
+            # ── Generate file via BuildDoctor diagnose-and-repair loop ─────────
+            manifest_str = manifest_builder.format_for_prompt(cumulative_manifest)
+            content, _tokens, file_report = await doctor.diagnose_and_repair(
+                file_spec=file_entry,
+                full_spec=state.spec,
+                prior_files=state.generated_files,
+                run_id=state.run_id,
+                max_attempts=3,
+            )
+            file_report["file_path"] = file_path
+            file_reports.append(file_report)
+
+            # ── Validate imports against dependency manifest ───────────────────
+            if content and cumulative_manifest.get("files"):
+                try:
+                    validation = await manifest_builder.validate_file(
+                        file_content=content,
+                        file_spec=file_entry,
+                        manifest=cumulative_manifest,
+                    )
+                    if not validation["valid"] and validation.get("mismatches"):
+                        logger.warning(
+                            f"[{state.run_id}] Import mismatch in {file_path}: "
+                            f"{validation['mismatches']}"
+                        )
+                        repair_diag = {
+                            "diagnosis": "Import mismatch detected",
+                            "root_cause": "Wrong import name used",
+                            "fix_instructions": (
+                                f"Fix these imports: {validation['mismatches']}"
+                            ),
+                            "similar_fixes": [],
+                        }
+                        fixed, _ = await doctor.repair(
+                            file_spec=file_entry,
+                            full_spec=state.spec,
+                            prior_files=state.generated_files,
+                            diagnosis=repair_diag,
+                            attempt=0,
+                        )
+                        if fixed:
+                            content = fixed
+                except Exception as val_exc:
+                    logger.debug(
+                        f"[{state.run_id}] Manifest validation failed (non-blocking): {val_exc}"
+                    )
 
             if content is not None:
                 state.generated_files[file_path] = content
+                layer_generated_files[file_path] = content
                 await _mark_file_complete(state.run_id, file_path, content)
 
                 # ── Gap 1: Cross-reference imports against already-generated files ──
@@ -225,9 +272,11 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                                     file_entry=source_entry,
                                     spec=state.spec,
                                     generated_files=state.generated_files,
+                                    dependency_manifest=manifest_str,
                                 )
                                 if fixed:
                                     state.generated_files[source_file] = fixed
+                                    layer_generated_files[source_file] = fixed
                                     await _mark_file_complete(
                                         state.run_id, source_file, fixed
                                     )
@@ -258,7 +307,7 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                     )
 
             else:
-                # Safeguard 2: save placeholder, track warning, continue build
+                # BuildDoctor exhausted — save placeholder, track warning, continue build
                 purpose = file_entry.get("description", f"File at {file_path}")
                 placeholder = _PLACEHOLDER_TEMPLATE.format(
                     file_path=file_path,
@@ -268,7 +317,8 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                 state.generation_failed_files.append(file_path)
                 await _save_generation_failed_file(state.run_id, file_path, placeholder)
                 logger.warning(
-                    f"[{state.run_id}] {file_path} saved as generation_failed placeholder"
+                    f"[{state.run_id}] {file_path} saved as generation_failed placeholder "
+                    f"after BuildDoctor exhausted all repair attempts"
                 )
 
             processed += 1
@@ -283,6 +333,26 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                 f"{'✓' if content is not None else '⚠ placeholder'} {file_path}"
             )
 
+        # ── Build dependency manifest after each layer completes ──────────────
+        if layer_generated_files:
+            try:
+                layer_manifest = await manifest_builder.build_manifest(
+                    layer_num=layer_num,
+                    completed_files=layer_generated_files,
+                )
+                cumulative_manifest = manifest_builder.accumulate(
+                    cumulative_manifest, layer_manifest
+                )
+                logger.debug(
+                    f"[{state.run_id}] Layer {layer_num} manifest built: "
+                    f"{len(layer_manifest.get('files', []))} files"
+                )
+            except Exception as mani_exc:
+                logger.warning(
+                    f"[{state.run_id}] Manifest build for layer {layer_num} "
+                    f"failed (non-blocking): {mani_exc}"
+                )
+
     # ── Phase 8: Generate pytest test files after layers 1-4 ─────────────────
     try:
         from pipeline.nodes.test_generator import generate_test_files
@@ -294,6 +364,15 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             logger.info(f"[{state.run_id}] Test suite generated: {len(test_files)} test files")
     except Exception as exc:
         logger.warning(f"[{state.run_id}] Test generation failed (non-blocking): {exc}")
+
+    # ── Post-build health report ──────────────────────────────────────────────
+    try:
+        health_report = await doctor.post_build_report(state.run_id, file_reports)
+        logger.info(f"[{state.run_id}] {health_report}")
+    except Exception as report_exc:
+        logger.warning(
+            f"[{state.run_id}] Post-build report failed (non-blocking): {report_exc}"
+        )
 
     # ── Gap 5: Delete checkpoint on successful completion ─────────────────────
     try:

@@ -3,16 +3,18 @@ config/knowledge_config.py
 Defines the knowledge domains, search queries, RSS feeds, and refresh schedules
 for The Forge's knowledge engine.
 
-6 domains covering The Forge's full technical stack:
+8 domains covering The Forge's full technical stack and business context:
   1. fastapi_python    — FastAPI, Pydantic v2, SQLAlchemy 2.0, asyncpg
   2. fly_io_deployment — Fly.io, Docker, deployment patterns
   3. rq_redis          — RQ, Redis Queue, background job patterns
   4. react_vite        — React 18, Vite, Tailwind CSS
   5. claude_api        — Anthropic API, Claude SDK, prompt engineering
   6. pgvector_postgres — pgvector, PostgreSQL async, vector search
+  7. build_issues      — Code generation failures, import errors, deployment issues
+  8. ai_agent_market   — AI agent market demand, pricing, competitive landscape
 
-Each domain sweeps daily. Claude summarises each article found.
-Duplicate content is detected by SHA256 hash and skipped.
+Each domain sweeps daily (or per its refresh schedule). Claude summarises each
+article found. Duplicate content is detected by SHA256 hash and skipped.
 """
 
 from dataclasses import dataclass, field
@@ -110,6 +112,49 @@ KNOWLEDGE_DOMAINS: list[KnowledgeDomain] = [
         ],
         rss_feeds=[],
         refresh_hours=72,
+    ),
+    KnowledgeDomain(
+        name="build_issues",
+        description=(
+            "Common code generation failures, Python import errors, deployment issues, "
+            "async patterns, SQLAlchemy gotchas, FastAPI common mistakes, Docker/Fly.io "
+            "failures, React build errors, and their fixes"
+        ),
+        search_queries=[
+            "Python import error common causes fixes 2026",
+            "SQLAlchemy async session common mistakes",
+            "FastAPI async endpoint common errors",
+            "Fly.io deployment failure troubleshooting",
+            "Docker build fails Python slim image fixes",
+            "React Tailwind CSS build errors solutions",
+            "Python circular import detection resolution",
+            "LangGraph state machine common implementation errors",
+            "code generation AI common failure patterns",
+            "production Python deployment checklist critical errors",
+        ],
+        rss_feeds=[
+            "https://python.org/blogs/rss",
+        ],
+        refresh_hours=24,
+    ),
+    KnowledgeDomain(
+        name="ai_agent_market",
+        description=(
+            "Who is buying AI agents, what they pay, competitor pricing and positioning, "
+            "which industries adopt AI agents fastest, buyer objections and sales cycles"
+        ),
+        search_queries=[
+            "AI agent development market demand 2026",
+            "custom AI agent pricing freelancer agency rates",
+            "AI automation agency competitor landscape 2026",
+            "industries adopting AI agents fastest growth",
+            "AI agent buyer objections enterprise sales",
+            "no-code AI agent platforms vs custom development comparison",
+            "AI agent development cost breakdown client pricing",
+            "AI automation ROI case studies by industry 2026",
+        ],
+        rss_feeds=[],
+        refresh_hours=168,  # Weekly
     ),
 ]
 
