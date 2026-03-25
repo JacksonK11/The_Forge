@@ -45,7 +45,7 @@ client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 MAX_ATTEMPTS = 3
 MAX_TOKENS = 16000
 SPLIT_MAX_TOKENS = 16000  # Per-part token limit for split generation (~640 lines each)
-_AUTOFIX_MODEL = "claude-sonnet-4-6"  # Sonnet for syntax-fix pass (cheaper than Opus)
+_AUTOFIX_MODEL = settings.claude_model  # Use configured Sonnet — updates automatically
 
 # Purpose/path keywords that indicate a file will be too large for one call
 _COMPLEX_KEYWORDS = frozenset([
@@ -160,6 +160,8 @@ async def generate_file_for_layer(
                     prompt,
                     file_path=file_path,
                     run_id=run_id,
+                    purpose=purpose,
+                    spec=spec,
                     max_attempts=3,
                     base_delay=5.0,
                     max_delay=60.0,
@@ -656,6 +658,8 @@ async def _generate_file_content(
     file_path: str = "",
     run_id: str = "",
     max_tokens: int = MAX_TOKENS,
+    purpose: str = "",
+    spec: dict | None = None,
 ) -> str:
     """
     Call Claude to generate file content.
@@ -768,6 +772,17 @@ async def _generate_file_content(
             partial_content=content,
         )
 
+    # Semantic completeness: catches model stopping early with syntactically valid stubs
+    if _check_semantic_completeness(content, file_path, purpose=purpose, spec=spec):
+        logger.warning(
+            f"[{run_id}] Semantic incompleteness detected for {file_path} "
+            f"— model closed with stubs instead of real logic — raising TruncatedOutputError"
+        )
+        raise TruncatedOutputError(
+            f"Semantic incompleteness for {file_path}",
+            partial_content=content,
+        )
+
     return content
 
 
@@ -823,6 +838,110 @@ def _detect_truncation(content: str, file_path: str) -> bool:
     if ext in ("ts", "tsx", "js", "jsx"):
         if content.count("{") - content.count("}") > 3:
             return True
+
+    return False
+
+
+# ── Semantic completeness check ───────────────────────────────────────────────
+
+
+def _check_semantic_completeness(
+    content: str,
+    file_path: str,
+    purpose: str = "",
+    spec: dict | None = None,
+) -> bool:
+    """
+    Detect semantic incompleteness in syntactically valid Python.
+
+    Catches the silent-truncation gap: the model ran out of generation budget
+    but produced valid Python by closing every open block with pass/return None
+    instead of real implementation. ast.parse passes, but the file is broken.
+
+    Two checks:
+      1. Stub-ending: last top-level definition has 0 real statements while
+         earlier definitions have substantive logic (model stopped early and
+         closed cleanly to avoid a SyntaxError).
+      2. Model-file table coverage: for files with "model/schema/entity/table"
+         in their path, every database table from the spec should appear in the
+         output. Missing tables → file was cut before all models were written.
+
+    Returns True if the file appears semantically incomplete.
+    """
+    if not file_path.endswith(".py") or not content:
+        return False
+
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return True  # Syntax failure is always truncation
+
+    top_defs = [
+        n for n in tree.body
+        if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    if not top_defs:
+        return False
+
+    def _real_stmt_count(body: list) -> int:
+        """Count substantive statements — excludes pass, ellipsis, bare return None, docstrings."""
+        count = 0
+        for stmt in body:
+            if isinstance(stmt, ast.Pass):
+                continue
+            val = getattr(stmt, "value", None)
+            if isinstance(stmt, ast.Expr) and isinstance(val, (ast.Constant, ast.Ellipsis)):
+                continue  # docstring or ...
+            if isinstance(stmt, ast.Return) and (
+                stmt.value is None
+                or (isinstance(stmt.value, ast.Constant) and stmt.value.value is None)
+            ):
+                continue  # bare return None
+            count += 1
+        return count
+
+    def _def_real_stmts(node) -> int:
+        if isinstance(node, ast.ClassDef):
+            body_stmts = _real_stmt_count(
+                [s for s in node.body if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            )
+            method_stmts = sum(
+                _real_stmt_count(m.body)
+                for m in node.body
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+            return body_stmts + method_stmts
+        return _real_stmt_count(node.body)
+
+    # ── Check 1: Stub-ending detection ────────────────────────────────────────
+    if len(top_defs) >= 3:
+        last_stmts = _def_real_stmts(top_defs[-1])
+        if last_stmts == 0:
+            others_with_content = sum(
+                1 for d in top_defs[:-1] if _def_real_stmts(d) >= 3
+            )
+            if others_with_content >= 2:
+                return True  # Last def is a stub while earlier ones have real logic
+
+    # ── Check 2: Model/schema file table coverage ──────────────────────────────
+    is_model_file = any(
+        kw in file_path.lower()
+        for kw in ("model", "schema", "entity", "table")
+    )
+    if is_model_file and spec:
+        db_tables = spec.get("database_tables", [])
+        if len(db_tables) >= 2:
+            content_lower = content.lower()
+            missing = [
+                t for t in db_tables
+                if t.get("name") and t["name"].lower() not in content_lower
+            ]
+            if missing and len(missing) / len(db_tables) > 0.20:
+                logger.debug(
+                    f"Model file {file_path} missing {len(missing)}/{len(db_tables)} "
+                    f"expected tables: {[t['name'] for t in missing[:5]]}"
+                )
+                return True
 
     return False
 

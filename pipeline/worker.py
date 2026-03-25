@@ -119,7 +119,7 @@ def _make_redis_log_sink(redis_conn):
             redis_conn.lpush("forge-worker-logs", entry)
             redis_conn.ltrim("forge-worker-logs", 0, 999)
         except Exception:
-            pass
+            pass  # Non-critical in-memory log sink — never let Redis failures kill the logger
 
     return sink
 
@@ -169,7 +169,7 @@ async def _recover_in_progress_builds(redis_conn: Redis) -> None:
             if cj:
                 running_job_ids.add(cj)
     except Exception:
-        pass
+        pass  # RQ worker introspection is best-effort — fall back to empty set on any Redis error
     existing_job_ids = {j.id for j in queue.jobs} | running_job_ids
 
     recovered = 0
@@ -212,7 +212,7 @@ async def _recover_in_progress_builds(redis_conn: Redis) -> None:
                 f"Auto-resuming from <code>{resume_from}</code>."
             )
         except Exception:
-            pass
+            pass  # Telegram notify on resume is fire-and-forget — never block recovery on it
 
         recovered += 1
 
@@ -349,7 +349,7 @@ async def _detect_and_requeue_orphans(
                     if cj:
                         running_job_ids.add(cj)
             except Exception:
-                pass
+                pass  # RQ worker introspection is best-effort — fall back to empty set on any Redis error
 
             existing_job_ids = {j.id for j in queue.jobs} | running_job_ids
             run_prefix = f"build-{run_id}"
@@ -512,7 +512,7 @@ def main() -> None:
         from app.api.services.notify import _send
         asyncio.run(_send("<b>The Forge Worker</b> — started and ready"))
     except Exception:
-        pass
+        pass  # Startup Telegram ping is cosmetic — never block worker boot on notification failure
 
     # Recover any builds that were interrupted by a previous deploy/restart
     asyncio.run(_recover_in_progress_builds(redis_conn))

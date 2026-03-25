@@ -144,7 +144,7 @@ async def _generate_test_file(
     )
     response = await client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=16000,
         system=TEST_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )

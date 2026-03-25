@@ -19,9 +19,9 @@ router = APIRouter()
 DEFAULTS: dict[str, str] = {
     "claude_model": "claude-sonnet-4-6",
     "claude_fast_model": "claude-haiku-4-5-20251001",
-    "parse_max_tokens": "64000",
-    "architecture_max_tokens": "64000",
-    "codegen_max_tokens": "64000",
+    "parse_max_tokens": "8000",
+    "architecture_max_tokens": "16000",
+    "codegen_max_tokens": "16000",
     "large_blueprint_threshold": "60000",
     "max_retries": "3",
     "orphan_timeout_minutes": "20",

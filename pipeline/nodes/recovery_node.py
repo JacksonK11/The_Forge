@@ -34,7 +34,7 @@ from memory.models import FileStatus, ForgeFile
 from pipeline.pipeline import PipelineState
 from pipeline.prompts.prompts import CODEGEN_SYSTEM, build_codegen_prompt
 
-_DIAGNOSIS_MODEL = "claude-sonnet-4-6"
+_DIAGNOSIS_MODEL = settings.claude_model  # Use configured Sonnet — updates automatically
 _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 MAX_REBUILD_ATTEMPTS = 2

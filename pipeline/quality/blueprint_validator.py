@@ -114,7 +114,7 @@ async def validate_blueprint(blueprint_text: str) -> ValidationResult:
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=1024,
+            max_tokens=800,
             system=VALIDATION_SYSTEM,
             messages=[
                 {

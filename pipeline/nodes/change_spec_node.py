@@ -85,7 +85,7 @@ async def change_spec_node(state: "UpdatePipelineState") -> "UpdatePipelineState
     try:
         response = await client.messages.create(
             model=settings.claude_model,
-            max_tokens=4096,
+            max_tokens=16000,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )

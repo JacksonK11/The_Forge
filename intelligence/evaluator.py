@@ -89,7 +89,7 @@ async def evaluate_file(
         )
         response = client.messages.create(
             model=model,
-            max_tokens=1024,
+            max_tokens=800,
             system=EVALUATOR_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
