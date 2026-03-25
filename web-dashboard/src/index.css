@@ -868,3 +868,37 @@ body {
 .text-mobile-safe {
   font-size: max(16px, 1rem);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ROUTER & ANIMATION ADDITIONS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Safe area support */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Smooth iOS scroll */
+.ios-scroll { -webkit-overflow-scrolling: touch; }
+
+/* Prevent body bounce */
+body { overscroll-behavior: none; }
+
+/* Slide-up animation */
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.slide-up { animation: slideUp 0.25s ease-out; }
+
+/* Scale-in for badges */
+@keyframes scaleIn {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+.scale-in { animation: scaleIn 0.15s ease-out; }
+
+/* Toast slide-in */
+@keyframes toastIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.toast-in { animation: toastIn 0.2s ease-out; }

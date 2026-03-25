@@ -244,3 +244,53 @@ export function triggerDownload(blob, filename) {
 }
 
 export { BASE_URL };
+
+// ─── Notifications & Dashboard ────────────────────────────────────────────────
+
+export async function getNotifications() {
+  return request("GET", "/forge/notifications");
+}
+
+export async function getPendingRuns() {
+  return request("GET", "/forge/runs/pending");
+}
+
+export async function searchForge(q) {
+  return request("GET", `/forge/search?q=${encodeURIComponent(q)}`);
+}
+
+export async function getIntelligenceStats() {
+  return request("GET", "/forge/intelligence/stats");
+}
+
+export async function getBuildTemplates() {
+  return request("GET", "/forge/templates");
+}
+
+export async function getBuildTemplate(id) {
+  return request("GET", `/forge/templates/${id}`);
+}
+
+export async function getAgentRegistry() {
+  return request("GET", "/forge/registry");
+}
+
+export async function getForgeConfig() {
+  return request("GET", "/forge/config");
+}
+
+export async function getRunReport(runId) {
+  return request("GET", `/forge/runs/${runId}/report`);
+}
+
+export async function submitFeedback(payload) {
+  return request("POST", "/forge/feedback", payload);
+}
+
+export async function planIncrementalChange(payload) {
+  return request("POST", "/forge/incremental/plan", payload);
+}
+
+export async function executeIncrementalChange(runId) {
+  return request("POST", `/forge/incremental/${runId}/execute`);
+}

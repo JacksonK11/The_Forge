@@ -26,6 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.middleware.auth import AuthMiddleware
 from app.api.ratelimit import limiter
 from app.api.routes import forge, runs, templates
+from app.api.routes.dashboard_stats import router as dashboard_stats_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.feedback import router as feedback_router
 from app.api.routes.incremental import router as incremental_router
@@ -176,6 +177,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 app.include_router(forge.router, prefix="/forge", tags=["forge"])
+# dashboard_stats must come before runs.router so /runs/pending doesn't get captured by /runs/{id}
+app.include_router(dashboard_stats_router, prefix="/forge", tags=["dashboard"])
 app.include_router(runs.router, prefix="/forge/runs", tags=["runs"])
 app.include_router(templates.router, prefix="/templates", tags=["templates"])
 app.include_router(office_router, prefix="/forge", tags=["office"])
