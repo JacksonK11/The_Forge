@@ -1,31 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { planIncrementalChange } from "../api.js";
+import { planIncrementalChange, getTemplates } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 
 export default function Upgrade() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const [agentId, setAgentId] = useState("");
-  const [changeDescription, setChangeDescription] = useState("");
+  const [changeText, setChangeText] = useState("");
+  const [files, setFiles] = useState([]);
+  const [inputMode, setInputMode] = useState("text");
+  const [repoName, setRepoName] = useState("");
+  const [pushToGithub, setPushToGithub] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!agentId.trim() || !changeDescription.trim()) {
-      addToast("Agent ID and change description are required.", "warning");
-      return;
+    if (!agentId.trim()) { addToast("Agent ID is required.", "warning"); return; }
+    if (inputMode === "text" && changeText.trim().length < 20) {
+      addToast("Change description must be at least 20 characters.", "warning"); return;
     }
     setSubmitting(true);
     try {
       const result = await planIncrementalChange({
         agent_id: agentId.trim(),
-        change_description: changeDescription.trim(),
+        change_description: inputMode === "text" ? changeText.trim() : "",
+        repo_name: repoName.trim(),
+        push_to_github: pushToGithub,
+        files: inputMode === "file" ? files : [],
       });
-      addToast("Incremental change plan created.", "success");
+      addToast("Upgrade plan created — pipeline starting.", "success");
       navigate(`/runs/${result.run_id || result.id}`);
     } catch (err) {
-      addToast(err.message || "Failed to plan incremental change.", "error");
+      addToast(err.message || "Failed to plan upgrade.", "error");
       setSubmitting(false);
     }
   }
@@ -33,8 +40,9 @@ export default function Upgrade() {
   return (
     <>
       <div className="sec-title">Upgrade</div>
-      <div className="sec-sub">Plan and execute an incremental change to an <span>existing deployed agent</span></div>
+      <div className="sec-sub">Describe a change → <span>targeted incremental update to an existing deployed agent</span></div>
 
+      {/* ── Form ── */}
       <div className="g2" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
         <form onSubmit={handleSubmit}>
           <div className="ddd-card">
@@ -55,66 +63,125 @@ export default function Upgrade() {
               </div>
             </div>
 
-            <div className="form-row">
-              <label className="ddd-lbl">Change Description *</label>
-              <textarea
-                className="ddd-textarea"
-                value={changeDescription}
-                onChange={(e) => setChangeDescription(e.target.value)}
-                placeholder="Describe what you want to change or add. Be specific about which files or features should be modified, and what the expected behaviour should be after the change..."
-                rows={12}
-              />
-              <div style={{ textAlign: "right", fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginTop: 4 }}>
-                {changeDescription.length} chars
+            <div className="form-row" style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setInputMode("text")}
+                className={`ddd-btn ${inputMode === "text" ? "btn-purple" : "btn-ghost"}`}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                PASTE TEXT
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode("file")}
+                className={`ddd-btn ${inputMode === "file" ? "btn-purple" : "btn-ghost"}`}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                UPLOAD FILES
+              </button>
+            </div>
+
+            {inputMode === "text" ? (
+              <div className="form-row">
+                <label className="ddd-lbl">Change Description *</label>
+                <textarea
+                  className="ddd-textarea"
+                  value={changeText}
+                  onChange={(e) => setChangeText(e.target.value)}
+                  placeholder="Describe what you want to change or add. Be specific about which files or features should be modified, and what the expected behaviour should be after the change..."
+                  rows={16}
+                />
+                <div style={{ textAlign: "right", fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginTop: 4 }}>
+                  {changeText.length} chars
+                </div>
               </div>
+            ) : (
+              <div className="form-row">
+                <label className="ddd-lbl">Change Spec Files (.docx / .pdf / .txt)</label>
+                <div
+                  className="file-drop-zone"
+                  onClick={() => document.getElementById("upgrade-file-input").click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); setFiles(Array.from(e.dataTransfer.files)); }}
+                >
+                  <div className="drop-zone-icon" style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
+                  <div className="drop-zone-text">
+                    {files.length > 0 ? `${files.length} file${files.length !== 1 ? "s" : ""} selected` : "Drag & drop or click to select files"}
+                  </div>
+                  <div className="drop-zone-hint">.docx, .pdf, .txt, or source code files</div>
+                  <input
+                    id="upgrade-file-input"
+                    type="file"
+                    multiple
+                    accept=".docx,.pdf,.txt,.py,.js,.jsx,.ts,.tsx,.md"
+                    onChange={(e) => setFiles(Array.from(e.target.files))}
+                    style={{ display: "none" }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="form-row">
+              <label className="ddd-lbl">GitHub Repo Name (optional)</label>
+              <input
+                className="ddd-input"
+                type="text"
+                value={repoName}
+                onChange={(e) => setRepoName(e.target.value)}
+                placeholder="e.g. buildright-ai-agent"
+              />
+            </div>
+
+            <div className="form-row" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="checkbox"
+                id="upgrade-push-github"
+                checked={pushToGithub}
+                onChange={(e) => setPushToGithub(e.target.checked)}
+                style={{ accentColor: "var(--p)", width: 14, height: 14, cursor: "pointer" }}
+              />
+              <label htmlFor="upgrade-push-github" style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t2)", letterSpacing: "0.05em", cursor: "pointer" }}>
+                PUSH TO GITHUB AFTER UPGRADE
+              </label>
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="ddd-btn btn-violet"
-              style={{ width: "100%", justifyContent: "center", padding: "12px 16px", fontSize: 12, background: "var(--violet)", color: "white" }}
+              className="ddd-btn btn-purple"
+              style={{ width: "100%", justifyContent: "center", padding: "12px 16px", fontSize: 12, marginTop: 8 }}
             >
-              {submitting ? "⚡ PLANNING CHANGE..." : "🔧 PLAN UPGRADE →"}
+              {submitting ? "⚡ PLANNING UPGRADE..." : "🔧 PLAN UPGRADE →"}
             </button>
           </div>
         </form>
 
+        {/* ── Sidebar info ── */}
         <div className="gcol">
-          <div className="ddd-card violet">
-            <div className="card-title">How Upgrades Work</div>
+          <div className="ddd-card">
+            <div className="card-title">What Upgrades Can Change</div>
             {[
-              ["1. Plan", "AI analyses the existing codebase and your change request"],
-              ["2. Spec", "Generates a targeted change spec — review before executing"],
-              ["3. Execute", "Applies changes to specific files only — minimal blast radius"],
-              ["4. Review", "Download the modified files and deploy the delta"],
-            ].map(([step, desc]) => (
-              <div key={step} className="stat-row">
-                <span style={{ fontFamily: "var(--fm)", fontSize: 11, color: "var(--violet)", fontWeight: 700 }}>{step}</span>
-                <span style={{ fontSize: 11, color: "var(--t2)", maxWidth: 160, textAlign: "right" }}>{desc}</span>
+              ["API Endpoints", "Add, modify, or remove FastAPI routes"],
+              ["Database Schema", "New tables, columns, pgvector fields"],
+              ["Worker Logic", "RQ workers, pipeline nodes, schedulers"],
+              ["Web Dashboard", "New pages, components, data views"],
+              ["Intelligence Layer", "KB rules, meta-rules, evaluator criteria"],
+              ["Integrations", "Webhooks, third-party APIs, Telegram"],
+              ["Deployment", "Fly.io config, GitHub Actions, secrets"],
+            ].map(([label, desc]) => (
+              <div key={label} className="stat-row">
+                <span className="stat-label">{label}</span>
+                <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", textAlign: "right", maxWidth: 130 }}>{desc}</span>
               </div>
             ))}
           </div>
 
-          <div className="ddd-card">
-            <div className="card-title">Good Change Requests</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
-                "Add a new API endpoint for bulk lead import",
-                "Add pgvector similarity search to the KB retriever",
-                "Add Telegram notification when a build completes",
-                "Change the dashboard colour scheme to match brand",
-                "Add rate limiting to the /forge/submit endpoint",
-              ].map((ex) => (
-                <div
-                  key={ex}
-                  onClick={() => setChangeDescription(ex)}
-                  style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", padding: "6px 10px", background: "var(--bg4)", borderRadius: 4, cursor: "pointer", border: "1px solid var(--line2)", transition: "border-color 0.15s" }}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--violet)"}
-                  onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--line2)"}
-                >
-                  {ex}
-                </div>
+          <div className="ddd-card green">
+            <div className="card-title">Upgrade Pipeline</div>
+            <div className="ddd-flow" style={{ flexDirection: "column", gap: 6 }}>
+              {["1. Parse Change Request", "2. Analyse Existing Code", "3. Confirm Change Spec", "4. Generate Delta Files", "5. Secrets Check", "6. Update README", "7. Package ZIP"].map((s) => (
+                <div key={s} style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>{s}</div>
               ))}
             </div>
           </div>
