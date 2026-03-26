@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getRun, getRunFiles, approveRun, getRunPackageBlob, triggerDownload, BASE_URL } from "../api.js";
+import { getRun, getRunFiles, approveRun, getRunPackageBlob, getDeployStatus, triggerDownload, BASE_URL } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 
 const STATUS_CONFIG = {
@@ -35,6 +35,7 @@ export default function RunStatus() {
   const { addToast } = useToast();
   const [run, setRun] = useState(null);
   const [files, setFiles] = useState([]);
+  const [deployStatus, setDeployStatus] = useState(null);
   const [approving, setApproving] = useState(false);
   const [expandedLayer, setExpandedLayer] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +48,12 @@ export default function RunStatus() {
       if (["generating", "complete", "packaging"].includes(data.status)) {
         const filesData = await getRunFiles(runId, false);
         setFiles(Array.isArray(filesData) ? filesData : filesData?.files || []);
+      }
+      if (data.status === "complete") {
+        try {
+          const ds = await getDeployStatus(runId);
+          setDeployStatus(ds);
+        } catch { /* non-critical */ }
       }
     } catch (err) {
       console.error("Failed to fetch run:", err);
@@ -237,17 +244,87 @@ export default function RunStatus() {
       {run.status === "complete" && run.package_ready && (
         <div className="ddd-card green mb24">
           <div style={{ fontFamily: "var(--fd)", fontSize: 28, color: "var(--green)", marginBottom: 4 }}>Build Complete</div>
-          <div style={{ fontSize: 12, color: "var(--t2)", marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--t2)", marginBottom: 20 }}>
             {run.files_complete} files generated{run.files_failed > 0 ? ` · ${run.files_failed} failed` : ""}. Download the ZIP, push to GitHub, run FLY_SECRETS.txt commands, and your agent is live.
           </div>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="ddd-btn btn-green"
-            style={{ padding: "12px 28px" }}
-          >
-            {downloading ? "⏳ PREPARING..." : "⬇ DOWNLOAD PACKAGE (.zip)"}
-          </button>
+
+          {/* ── Links row ── */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+            {/* GitHub link */}
+            {(deployStatus?.github_repo_url || run.github_repo_url) && (
+              <a
+                href={deployStatus?.github_repo_url || run.github_repo_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ddd-btn btn-ghost"
+                style={{ padding: "10px 18px", display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                GITHUB REPO
+              </a>
+            )}
+
+            {/* Fly.io webapp link — constructed from agent_slug or repo_name */}
+            {(deployStatus?.agent_slug || run.repo_name) && (
+              <a
+                href={`https://${deployStatus?.agent_slug || run.repo_name}-api.fly.dev`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ddd-btn btn-ghost"
+                style={{ padding: "10px 18px", display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                LIVE WEBAPP
+              </a>
+            )}
+
+            {/* Package download */}
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="ddd-btn btn-green"
+              style={{ padding: "10px 18px" }}
+            >
+              {downloading ? "⏳ PREPARING..." : "⬇ DOWNLOAD .ZIP"}
+            </button>
+          </div>
+
+          {/* ── Link display cards ── */}
+          {(deployStatus?.github_repo_url || run.github_repo_url) && (
+            <div style={{ background: "var(--bg4)", border: "1px solid var(--line2)", borderRadius: 8, padding: "12px 16px", marginBottom: 8 }}>
+              <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginBottom: 4, letterSpacing: "0.08em" }}>GITHUB REPOSITORY</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ fontFamily: "var(--fm)", fontSize: 12, color: "var(--p2)", wordBreak: "break-all" }}>
+                  {deployStatus?.github_repo_url || run.github_repo_url}
+                </span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(deployStatus?.github_repo_url || run.github_repo_url).then(() => addToast("Copied!", "success"))}
+                  className="ddd-btn btn-ghost btn-sm"
+                  style={{ flexShrink: 0 }}
+                >
+                  COPY
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(deployStatus?.agent_slug || run.repo_name) && (
+            <div style={{ background: "var(--bg4)", border: "1px solid var(--line2)", borderRadius: 8, padding: "12px 16px" }}>
+              <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginBottom: 4, letterSpacing: "0.08em" }}>LIVE WEBAPP URL (after deploying to Fly.io)</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ fontFamily: "var(--fm)", fontSize: 12, color: "var(--green)", wordBreak: "break-all" }}>
+                  {`https://${deployStatus?.agent_slug || run.repo_name}-api.fly.dev`}
+                </span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(`https://${deployStatus?.agent_slug || run.repo_name}-api.fly.dev`).then(() => addToast("Copied!", "success"))}
+                  className="ddd-btn btn-ghost btn-sm"
+                  style={{ flexShrink: 0 }}
+                >
+                  COPY
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

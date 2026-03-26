@@ -80,8 +80,8 @@ function ForgeNav() {
       <NavLink to="/" className="forge-logo" style={{ textDecoration: "none" }}>
         <div className="logo-dot" />
         <span>THE FORGE</span>
-        <span style={{ fontFamily: "var(--fm)", fontSize: 9, color: "var(--t3)", background: "var(--bg4)", border: "1px solid var(--line3)", borderRadius: 4, padding: "2px 7px", marginLeft: 8, letterSpacing: "0.06em" }}>
-          COMMAND CENTRE
+        <span style={{ fontFamily: "var(--fm)", fontSize: 9, color: "var(--p2)", background: "var(--p-d)", border: "1px solid var(--p-g)", borderRadius: 4, padding: "2px 7px", marginLeft: 8, letterSpacing: "0.06em" }}>
+          V5
         </span>
       </NavLink>
 
