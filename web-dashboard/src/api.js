@@ -330,6 +330,9 @@ export async function planIncrementalChange(payload) {
   return request("POST", "/forge/incremental/plan", payload);
 }
 
-export async function executeIncrementalChange(runId) {
-  return request("POST", `/forge/incremental/${runId}/execute`);
+export async function executeIncrementalChange(runId, approvedPlan) {
+  return request("POST", "/forge/incremental/execute", {
+    run_id: runId,
+    approved_plan: approvedPlan,
+  });
 }

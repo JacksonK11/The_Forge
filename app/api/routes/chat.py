@@ -195,7 +195,7 @@ implemented across builds, use search_file_content.
 THE FORGE ARCHITECTURE:
 - 7-stage build pipeline: Validate → Parse → Confirm → Architecture → Generate (6 layers) → Recovery → Build QA → Package → GitHub Push → Notify
 - FastAPI + Python 3.12 backend at https://the-forge-api.fly.dev
-- React + Vite + Tailwind dashboard at https://the-forge-dashboard-v6.fly.dev
+- React + Vite + Tailwind dashboard at https://the-forge-dashboard-v8.fly.dev
 - RQ workers for background builds (15-25 minutes per build)
 - PostgreSQL + pgvector for storage and semantic retrieval
 - Claude Opus 4.6 for spec parsing, Sonnet 4.6 for code generation and chat
