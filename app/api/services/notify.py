@@ -51,16 +51,30 @@ async def notify_build_complete(
     estimated_cost_aud: Optional[float] = None,
     generation_failed_files: Optional[list[str]] = None,
     rebuilt_files_count: int = 0,
+    qa_result: Optional[dict] = None,
 ) -> None:
     """
     Notify when a build completes.
 
     generation_failed_files: files still needing manual attention AFTER recovery pass.
     rebuilt_files_count: files successfully recovered by the recovery pass.
+    qa_result: BuildQAResult.to_dict() — includes score, categories, and issues.
     """
     files_complete = file_count - files_failed
     has_manual = bool(generation_failed_files)
-    status_icon = "✅" if not has_manual else "⚠️"
+
+    qa_score = qa_result.get("total_score") if qa_result else None
+    qa_passed = qa_result.get("passed", True) if qa_result else True
+    qa_issues = [i for i in (qa_result.get("issues") or []) if i.get("severity") == "critical"] if qa_result else []
+
+    # Status icon: red X if manual files needed, orange if QA gaps, green if clean
+    if has_manual:
+        status_icon = "⚠️"
+    elif qa_score is not None and qa_score < 100:
+        status_icon = "🟡"
+    else:
+        status_icon = "✅"
+
     cost_aud = estimated_cost_aud if estimated_cost_aud is not None else files_complete * 0.002
 
     text = (
@@ -72,24 +86,73 @@ async def notify_build_complete(
         f"Estimated cost: <b>A${cost_aud:.3f}</b>\n"
     )
 
+    # QA score line
+    if qa_score is not None:
+        score_label = "✅ PASS" if qa_score >= 95 else ("🟡 GOOD" if qa_score >= 85 else "🔴 NEEDS FIXES")
+        text += f"Build QA Score: <b>{qa_score}/100</b> — {score_label}\n"
+        if qa_result and qa_result.get("categories"):
+            cats = qa_result["categories"]
+            text += (
+                f"  API {cats.get('api', {}).get('score', 0)}/25 · "
+                f"Wiring {cats.get('wiring', {}).get('score', 0)}/25 · "
+                f"Intel {cats.get('intelligence', {}).get('score', 0)}/25 · "
+                f"Infra {cats.get('infrastructure', {}).get('score', 0)}/15 · "
+                f"Quality {cats.get('code_quality', {}).get('score', 0)}/10\n"
+            )
+
     if files_failed > 0:
         text += f"⚠️ {files_failed} file(s) failed initial generation\n"
 
     if rebuilt_files_count > 0:
-        text += f"\n✅ <b>{rebuilt_files_count} file(s) auto-recovered</b> by recovery pass\n"
+        text += f"✅ <b>{rebuilt_files_count} file(s) auto-recovered</b> by recovery pass\n"
 
     if generation_failed_files:
         text += f"\n🔧 <b>{len(generation_failed_files)} file(s) need manual attention:</b>\n"
-        for fp in generation_failed_files[:10]:  # Cap at 10 to avoid message length limit
+        for fp in generation_failed_files[:8]:
             text += f"  • <code>{fp}</code>\n"
-        if len(generation_failed_files) > 10:
-            text += f"  ... and {len(generation_failed_files) - 10} more\n"
-        text += "\nSee <b>FAILED_FILES_REPORT.md</b> in the ZIP for implementation guides.\n"
+        if len(generation_failed_files) > 8:
+            text += f"  ... and {len(generation_failed_files) - 8} more\n"
+
+    # QA issues — what still needs fixing
+    if qa_issues and qa_score is not None and qa_score < 100:
+        text += f"\n🔴 <b>{len(qa_issues)} issue(s) still need fixing after QA loop:</b>\n"
+        for issue in qa_issues[:8]:
+            cat = issue.get("category", "").upper()
+            fp = issue.get("file", "")
+            desc = issue.get("description", "")
+            text += f"  [{cat}] "
+            if fp:
+                text += f"<code>{fp}</code>: "
+            text += f"{desc[:120]}\n"
+        if len(qa_issues) > 8:
+            text += f"  ... and {len(qa_issues) - 8} more (see Run Status page)\n"
+
+        # Ready-to-paste fix prompt
+        fix_lines = []
+        for issue in qa_issues[:15]:
+            cat = issue.get("category", "").upper()
+            fp = issue.get("file", "")
+            desc = issue.get("description", "")
+            hint = issue.get("fix_hint", "")
+            line = f"[{cat}]"
+            if fp:
+                line += f" {fp}:"
+            line += f" {desc}"
+            if hint:
+                line += f" — {hint}"
+            fix_lines.append(line)
+
+        fix_prompt = (
+            f"Fix the following QA issues in run {run_id} ({title}):\n\n"
+            + "\n".join(f"{i+1}. {line}" for i, line in enumerate(fix_lines))
+            + "\n\nFix all issues so the build scores 100/100."
+        )
+        text += f"\n💬 <b>Fix prompt (paste into Upgrade or Claude Code):</b>\n<code>{fix_prompt[:800]}</code>\n"
 
     if github_repo_url:
         text += f"\nGitHub: <a href='{github_repo_url}'>{github_repo_url}</a>\n"
 
-    text += f"\n<a href='https://the-forge-dashboard.fly.dev/runs/{run_id}'>View Build →</a>"
+    text += f"\n<a href='https://the-forge-dashboard-v5.fly.dev/runs/{run_id}'>View Build →</a>"
     await _send(text)
 
     if callback_url:

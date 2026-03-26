@@ -31,7 +31,8 @@ const LAYER_NAMES = {
 
 const ACTIVE_STATUSES = new Set(["queued", "validating", "parsing", "architecting", "generating", "packaging", "planning", "executing"]);
 
-function BuildQAPanel({ qa }) {
+function BuildQAPanel({ qa, runId, title }) {
+  const [copied, setCopied] = useState(false);
   const score = qa.total_score ?? 0;
   const passed = qa.passed;
   const scoreColor = score >= 95 ? "var(--green)" : score >= 85 ? "var(--amber)" : "var(--red)";
@@ -41,6 +42,30 @@ function BuildQAPanel({ qa }) {
   const issues = qa.issues ?? [];
   const critical = issues.filter((i) => i.severity === "critical");
   const warnings = issues.filter((i) => i.severity === "warning");
+
+  function buildFixPrompt() {
+    if (critical.length === 0) return "";
+    const lines = critical.map((issue, i) => {
+      const cat = (issue.category || "").toUpperCase();
+      const fp = issue.file ? `${issue.file}: ` : "";
+      const hint = issue.fix_hint ? ` — ${issue.fix_hint}` : "";
+      return `${i + 1}. [${cat}] ${fp}${issue.description}${hint}`;
+    });
+    return (
+      `Fix the following QA issues in this build (run_id: ${runId}, agent: ${title}):\n\n` +
+      lines.join("\n") +
+      `\n\nFix every issue listed above so the build scores 100/100.`
+    );
+  }
+
+  function handleCopyPrompt() {
+    const prompt = buildFixPrompt();
+    if (!prompt) return;
+    navigator.clipboard.writeText(prompt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
 
   const cats = [
     { key: "api",            label: "API Completeness",    max: 25 },
@@ -123,6 +148,26 @@ function BuildQAPanel({ qa }) {
       {critical.length === 0 && warnings.length === 0 && (
         <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--green)" }}>
           ✓ No issues found — build is clean across all categories
+        </div>
+      )}
+
+      {/* Copy Fix Prompt button — only shown when there are remaining issues */}
+      {critical.length > 0 && (
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line2)" }}>
+          <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginBottom: 8 }}>
+            Paste this prompt into the Upgrade page or Claude Code to fix everything:
+          </div>
+          <button
+            onClick={handleCopyPrompt}
+            className="ddd-btn btn-purple"
+            style={{ width: "100%", justifyContent: "center", padding: "10px 16px" }}
+          >
+            {copied ? "✓ COPIED TO CLIPBOARD" : `📋 COPY FIX PROMPT (${critical.length} issue${critical.length !== 1 ? "s" : ""})`}
+          </button>
+          <div style={{ marginTop: 8, fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+            The prompt includes every issue, which file it's in, and exactly how to fix it.
+            Paste into <b style={{ color: "var(--t2)" }}>Upgrade</b> with this run's ID, or drop directly into Claude Code.
+          </div>
         </div>
       )}
     </div>
@@ -434,7 +479,7 @@ export default function RunStatus() {
 
       {/* ── Build QA Score ── */}
       {runReport?.build_qa && (
-        <BuildQAPanel qa={runReport.build_qa} />
+        <BuildQAPanel qa={runReport.build_qa} runId={runId} title={run.title} />
       )}
 
       {/* ── File tree ── */}

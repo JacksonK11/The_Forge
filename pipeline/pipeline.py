@@ -239,6 +239,13 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
             )
             run = result.scalar_one_or_none()
             if run:
+                qa_dict = None
+                if state.qa_result is not None:
+                    try:
+                        qa_dict = state.qa_result.to_dict()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
                 await notify_build_complete(
                     run_id=run_id,
                     title=state.title,
@@ -249,6 +256,7 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
                     github_repo_url=run.github_repo_url,
                     generation_failed_files=state.still_failed_files or None,
                     rebuilt_files_count=state.rebuilt_files_count,
+                    qa_result=qa_dict,
                 )
     except Exception as exc:
         logger.error(f"Notification failed (non-blocking): {exc}")
