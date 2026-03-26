@@ -69,7 +69,23 @@ export default function Queue() {
       </div>
 
       {loading ? (
-        <div style={{ color: "var(--t3)", fontFamily: "var(--fm)", fontSize: 11, padding: "40px 0", textAlign: "center" }}>Loading queue...</div>
+        <div className="gcol">
+          {[1, 2].map((i) => (
+            <div key={i} className="ddd-card" style={{ opacity: 0.5 }}>
+              <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ height: 12, background: "var(--t3)", borderRadius: 4, width: "60%", marginBottom: 10, opacity: 0.3 }} />
+                  <div style={{ height: 10, background: "var(--t3)", borderRadius: 4, width: "80%", marginBottom: 8, opacity: 0.2 }} />
+                  <div style={{ height: 10, background: "var(--t3)", borderRadius: 4, width: "40%", opacity: 0.2 }} />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ height: 28, width: 90, background: "var(--t3)", borderRadius: 6, opacity: 0.2 }} />
+                  <div style={{ height: 28, width: 90, background: "var(--t3)", borderRadius: 6, opacity: 0.2 }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : runs.length === 0 ? (
         <div className="ddd-card green" style={{ textAlign: "center", padding: "48px" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>

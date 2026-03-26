@@ -216,6 +216,45 @@ export async function sendChatMessage(messages, memoryNotes, filesContext) {
   });
 }
 
+export async function sendChatMessageStream(messages, memoryNotes, filesContext, onEvent) {
+  const res = await fetch(`${BASE_URL}/forge/chat/stream`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      messages,
+      memory_notes: memoryNotes,
+      files_context: filesContext,
+    }),
+  });
+
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      errMsg = data.detail || data.message || errMsg;
+    } catch { /* ignore parse error */ }
+    throw new Error(errMsg);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6).trim();
+      if (!raw) continue;
+      try { onEvent(JSON.parse(raw)); } catch { /* ignore bad JSON */ }
+    }
+  }
+}
+
 // ─── Analytics & Settings ─────────────────────────────────────────────────────
 
 export async function getAnalytics() {

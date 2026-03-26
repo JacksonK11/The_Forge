@@ -125,6 +125,14 @@ def start_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=30,
     )
 
+    # ── Startup: KB health check ──────────────────────────────────────────────
+    scheduler.add_job(
+        _check_kb_on_startup,
+        trigger="date",  # Run once immediately on startup
+        id="kb_startup_check",
+        name="KB Startup Health Check",
+    )
+
     scheduler.start()
     _scheduler_instance = scheduler
     _write_scheduler_heartbeat()
@@ -272,6 +280,44 @@ async def _send_weekly_summary() -> None:
         await _send(text)
     except Exception as exc:
         logger.error(f"Weekly summary job failed: {exc}")
+
+
+async def _check_kb_on_startup() -> None:
+    """
+    On worker startup, check if the knowledge base and KB records are populated.
+    Logs a clear action message if empty so the operator knows to seed it.
+    """
+    logger.info("Startup check: knowledge base status")
+    try:
+        from knowledge.retriever import get_knowledge_stats
+        stats = await get_knowledge_stats()
+        total_chunks = stats.get("total_chunks", 0)
+        total_articles = stats.get("total_articles", 0)
+        if total_chunks == 0:
+            logger.warning(
+                "Knowledge base is EMPTY — no embeddings found. "
+                "To populate it, run: python scripts/seed_experience.py "
+                "Then the daily sweep at 02:00 UTC will keep it current."
+            )
+        else:
+            logger.info(
+                f"Knowledge base ready: {total_articles} articles, {total_chunks} chunks"
+            )
+    except Exception as exc:
+        logger.warning(f"Startup KB check failed (non-blocking): {exc}")
+
+    try:
+        from intelligence.knowledge_base import get_record_count
+        count = await get_record_count()
+        if count == 0:
+            logger.warning(
+                "Build outcomes KB is EMPTY — no build outcome records found. "
+                "Records accumulate automatically as builds complete."
+            )
+        else:
+            logger.info(f"Build outcomes KB ready: {count} records")
+    except Exception as exc:
+        logger.warning(f"Startup KB record check failed (non-blocking): {exc}")
 
 
 async def poll_agent_health() -> None:

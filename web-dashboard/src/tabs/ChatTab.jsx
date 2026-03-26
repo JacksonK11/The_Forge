@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { sendChatMessage } from "../api.js";
+import { sendChatMessageStream } from "../api.js";
 
 const STORAGE_KEY = "forge_chat";
 const FILES_KEY = "forge_files";
@@ -98,10 +98,17 @@ function MessageBubble({ msg, isMobile }) {
   );
 }
 
+const TOOL_LABELS = {
+  get_file_content: "Reading file content...",
+  search_file_content: "Searching builds...",
+};
+
 export default function ChatTab({ isMobile = false }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // Streaming state: { content: string, toolCalls: string[] } | null
+  const [streamingMsg, setStreamingMsg] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -111,7 +118,7 @@ export default function ChatTab({ isMobile = false }) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, streamingMsg]);
 
   function persistMessages(msgs) {
     setMessages(msgs);
@@ -129,40 +136,37 @@ export default function ChatTab({ isMobile = false }) {
       const updated = [...messages, userMsg];
       persistMessages(updated);
       setLoading(true);
+      setStreamingMsg({ content: "", toolCalls: [] });
+
+      let finalContent = "";
 
       try {
         const memoryNotes = getMemoryContext();
         const filesContext = getFilesContext();
+        const apiMessages = updated.map((m) => ({ role: m.role, content: m.content }));
 
-        // Build message history for API (exclude local metadata)
-        const apiMessages = updated.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
-
-        const response = await sendChatMessage(apiMessages, memoryNotes, filesContext);
-        const assistantContent =
-          response?.reply ||
-          response?.content ||
-          response?.message ||
-          response?.response ||
-          "I received your message but couldn't parse the response.";
+        await sendChatMessageStream(apiMessages, memoryNotes, filesContext, (event) => {
+          if (event.type === "text_delta") {
+            finalContent += event.text;
+            setStreamingMsg((prev) => prev ? { ...prev, content: prev.content + event.text } : null);
+          } else if (event.type === "tool_use") {
+            setStreamingMsg((prev) =>
+              prev ? { ...prev, toolCalls: [...prev.toolCalls, event.name] } : null
+            );
+          } else if (event.type === "done" || event.type === "error") {
+            // Finalized in the finally block
+          }
+        });
 
         const assistantMsg = {
           id: `${Date.now()}-assistant`,
           role: "assistant",
-          content: assistantContent,
+          content: finalContent || "I couldn't generate a response. Please try again.",
           timestamp: new Date().toISOString(),
         };
         persistMessages([...updated, assistantMsg]);
       } catch (err) {
-        let content;
-        if (err.message.includes("404")) {
-          content =
-            "The /forge/chat endpoint is not yet implemented on the backend. Once deployed, I'll be able to answer questions about The Forge, your builds, and the full agent portfolio.";
-        } else {
-          content = `Error: ${err.message}. Make sure the API is running and VITE_API_SECRET_KEY is set.`;
-        }
+        const content = `Error: ${err.message}. Make sure the API is running and VITE_API_SECRET_KEY is set.`;
         const errMsg = {
           id: `${Date.now()}-error`,
           role: "assistant",
@@ -171,6 +175,7 @@ export default function ChatTab({ isMobile = false }) {
         };
         persistMessages([...updated, errMsg]);
       } finally {
+        setStreamingMsg(null);
         setLoading(false);
       }
     },
@@ -256,13 +261,33 @@ export default function ChatTab({ isMobile = false }) {
           <MessageBubble key={msg.id} msg={msg} isMobile={isMobile} />
         ))}
 
-        {loading && (
+        {/* Streaming message — live tokens + tool use indicators */}
+        {streamingMsg && (
           <div className="flex justify-start mb-3">
             <div className="w-7 h-7 rounded-full bg-purple-800 flex items-center justify-center text-xs font-bold text-purple-200 flex-shrink-0 mr-2 mt-0.5">
               F
             </div>
-            <div className="bg-gray-800 rounded-2xl rounded-tl-sm">
-              <TypingIndicator />
+            <div className="max-w-[75%]">
+              {streamingMsg.toolCalls.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {[...new Set(streamingMsg.toolCalls)].map((tc, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 text-[10px] bg-purple-900/40 border border-purple-800/50 text-purple-300 rounded-full px-2.5 py-0.5 font-mono"
+                    >
+                      <span className="animate-pulse">⚙</span>
+                      {TOOL_LABELS[tc] || tc}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="bg-gray-800 text-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed">
+                {streamingMsg.content ? (
+                  <span className="whitespace-pre-wrap">{streamingMsg.content}</span>
+                ) : (
+                  <TypingIndicator />
+                )}
+              </div>
             </div>
           </div>
         )}

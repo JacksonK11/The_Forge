@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>The Forge — Dashboard Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050810;--bg2:#070b18;--bg3:#0b1020;--bg4:#0f1629;--bg5:#131d33;
+  --line:#0f1c35;--line2:#162440;--line3:#1d3050;
+  --p:#7c3aed;--p2:#a78bfa;--p-d:rgba(124,58,237,.12);--p-g:rgba(124,58,237,.28);
+  --green:#00e87a;--green-d:rgba(0,232,122,.08);
+  --red:#ff3a5c;--red-d:rgba(255,58,92,.08);
+  --amber:#ffb020;--amber-d:rgba(255,176,32,.08);
+  --cyan:#00d4ff;--cyan-d:rgba(0,212,255,.08);
+  --violet:#9060f0;--violet-d:rgba(144,96,240,.08);
+  --t1:#dde8f8;--t2:#7a9ab8;--t3:#3a5a78;--t4:#1e3448;
+  --fd:'Bebas Neue',sans-serif;--fb:'Outfit',sans-serif;--fm:'Space Mono',monospace;
+}
+body{background:var(--bg);color:var(--t1);font-family:var(--fb);font-size:13px;line-height:1.5}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:48px 48px;opacity:.45}
+body::after{content:'';position:fixed;top:-200px;left:-200px;width:800px;height:800px;
+  background:radial-gradient(circle,rgba(124,58,237,.05) 0%,transparent 70%);pointer-events:none;z-index:0}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--line3);border-radius:2px}
+
+/* NAV */
+.nav{position:sticky;top:0;z-index:100;background:rgba(5,8,16,.94);backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--line2);padding:0 28px;display:flex;align-items:center;height:54px;gap:0}
+.logo{font-family:var(--fd);font-size:22px;letter-spacing:.06em;color:var(--p2);margin-right:32px;display:flex;align-items:center;gap:10px}
+.logo-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.logo-pill{font-family:var(--fm);font-size:9px;color:var(--t3);background:var(--bg4);border:1px solid var(--line3);border-radius:4px;padding:2px 7px;letter-spacing:.06em}
+.tab{height:54px;padding:0 14px;display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--t3);border:none;background:none;border-bottom:2px solid transparent;text-transform:uppercase;cursor:pointer;text-decoration:none;white-space:nowrap}
+.tab.active{color:var(--p2);border-bottom-color:var(--p)}
+.badge{background:var(--amber-d);color:var(--amber);border:1px solid rgba(255,176,32,.3);border-radius:3px;padding:1px 5px;font-size:9px;font-family:var(--fm)}
+.badge.purple{background:var(--p-d);color:var(--p2);border-color:var(--p-g)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.time{font-family:var(--fm);font-size:11px;color:var(--t3)}
+.avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--p),var(--p2));display:flex;align-items:center;justify-content:center;font-family:var(--fd);font-size:16px;color:#fff}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* SHELL */
+.shell{position:relative;z-index:1;max-width:1500px;margin:0 auto;padding:32px 28px 60px}
+
+/* HERO */
+.hero{background:linear-gradient(135deg,var(--bg3) 0%,var(--bg4) 100%);border:1px solid var(--line2);border-radius:14px;padding:32px 36px;margin-bottom:24px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.hero::before{content:'';position:absolute;right:-60px;top:-60px;width:300px;height:300px;background:radial-gradient(circle,var(--p-d) 0%,transparent 70%)}
+.hero-eyebrow{font-family:var(--fm);font-size:10px;color:var(--p2);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.hero-title{font-family:var(--fd);font-size:48px;letter-spacing:.03em;line-height:1;margin-bottom:8px}
+.hero-sub{font-size:14px;color:var(--t2);max-width:500px}
+.hero-stats{display:flex;gap:28px}
+.hs{text-align:center}
+.hs-val{font-family:var(--fd);font-size:36px;line-height:1}
+.hs-lbl{font-family:var(--fm);font-size:10px;color:var(--t3);text-transform:uppercase;margin-top:2px}
+
+/* ALERT */
+.alert{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:8px;margin-bottom:10px}
+.alert.amber{background:var(--amber-d);border:1px solid rgba(255,176,32,.2)}
+.alert-icon{font-size:18px}
+.alert-body{flex:1}
+.alert-title{font-size:12px;font-weight:600;margin-bottom:2px}
+.alert-sub{font-size:11px;color:var(--t3)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;font-family:var(--fm);font-size:11px;font-weight:700;letter-spacing:.05em;cursor:pointer;border:none;text-transform:uppercase;text-decoration:none}
+.btn-amber{background:var(--amber);color:var(--bg)}
+.btn-purple{background:var(--p);color:#fff}
+.btn-ghost{background:transparent;color:var(--t2);border:1px solid var(--line3)}
+.btn-sm{padding:5px 10px;font-size:9px}
+.btn-green{background:var(--green);color:var(--bg)}
+
+/* KPI GRID */
+.g6{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:24px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.kpi-card{background:var(--bg3);border:1px solid var(--line2);border-radius:10px;padding:18px 20px;position:relative;overflow:hidden}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--line3),transparent)}
+.kpi-card.purple{border-color:var(--p);box-shadow:0 0 28px var(--p-d)}
+.kpi-card.purple::before{background:linear-gradient(90deg,transparent,var(--p-g),transparent)}
+.kpi-card.green{border-color:var(--green);box-shadow:0 0 28px var(--green-d)}
+.kpi-card.red{border-color:var(--red);box-shadow:0 0 28px var(--red-d)}
+.kpi-card.amber{border-color:var(--amber);box-shadow:0 0 28px var(--amber-d)}
+.kpi-lbl{font-family:var(--fm);font-size:10px;color:var(--t3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.kpi-val{font-family:var(--fd);font-size:42px;letter-spacing:.02em;line-height:1}
+.kpi-sub{font-size:11px;color:var(--t3);margin-top:4px}
+.card{background:var(--bg3);border:1px solid var(--line2);border-radius:10px;padding:20px 22px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--line3),transparent)}
+.card.green{border-color:var(--green);box-shadow:0 0 28px var(--green-d)}
+.card-title{font-family:var(--fm);font-size:10px;letter-spacing:.12em;color:var(--t3);text-transform:uppercase;margin-bottom:14px}
+
+/* FEED */
+.feed-item{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.feed-icon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;background:var(--p-d)}
+.feed-body{flex:1;min-width:0}
+.feed-title{font-size:12px;font-weight:600;margin-bottom:2px}
+.feed-sub{font-size:11px;color:var(--t3)}
+.feed-time{font-family:var(--fm);font-size:10px;color:var(--t3);white-space:nowrap}
+
+/* PIPE CARD */
+.pipe-card{background:var(--bg3);border:1px solid var(--line2);border-radius:8px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .2s;display:block;text-decoration:none}
+.pipe-card-name{font-size:12px;font-weight:600;color:var(--t1);margin-bottom:4px}
+.pipe-card-meta{display:flex;justify-content:space-between;align-items:center}
+
+/* TAGS */
+.tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:3px;font-family:var(--fm);font-size:10px;font-weight:700;letter-spacing:.05em}
+.tag-green{background:var(--green-d);color:var(--green);border:1px solid rgba(0,232,122,.25)}
+.tag-purple{background:var(--p-d);color:var(--p2);border:1px solid var(--p-g)}
+.tag-amber{background:var(--amber-d);color:var(--amber);border:1px solid rgba(255,176,32,.25)}
+.tag-red{background:var(--red-d);color:var(--red);border:1px solid rgba(255,58,92,.25)}
+.tag-gray{background:rgba(58,90,120,.2);color:var(--t2);border:1px solid var(--line3)}
+.tag-cyan{background:var(--cyan-d);color:var(--cyan);border:1px solid rgba(0,212,255,.25)}
+
+/* FLOW */
+.flow{display:flex;align-items:center;gap:0}
+.flow-step{background:var(--bg4);border:1px solid var(--line2);border-radius:8px;padding:10px 14px;text-align:center;flex:1;min-width:80px}
+.flow-num{font-family:var(--fd);font-size:22px;color:var(--p2);line-height:1}
+.flow-lbl{font-family:var(--fm);font-size:9px;color:var(--t3);text-transform:uppercase;margin-top:2px;letter-spacing:.08em}
+.flow-arrow{color:var(--t4);font-size:18px;padding:0 4px;flex-shrink:0}
+
+/* STAT ROW */
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.stat-lbl{font-size:12px;color:var(--t2)}
+.stat-val{font-family:var(--fm);font-size:12px;font-weight:700}
+
+/* INT BADGE */
+.int-badge{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg4);border:1px solid var(--line2);border-radius:8px;margin-bottom:8px}
+.int-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.int-dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+.int-dot.amber{background:var(--amber)}
+.int-name{font-size:12px;font-weight:600}
+.int-status{font-family:var(--fm);font-size:10px}
+.int-status.on{color:var(--green)}.int-status.off{color:var(--t3)}
+
+/* TBL */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-family:var(--fm);font-size:10px;color:var(--t3);letter-spacing:.1em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px}
+.tbl tr:hover td{background:var(--bg4)}
+.tbl tr:last-child td{border-bottom:none}
+
+/* PROG */
+.prog{height:4px;background:var(--line2);border-radius:2px;overflow:hidden;margin-top:8px}
+.prog-fill{height:100%;border-radius:2px}
+
+/* DIVIDER */
+.div{height:1px;background:var(--line2);margin:16px 0}
+
+/* SECTION PAGES */
+.sec-title{font-family:var(--fd);font-size:52px;letter-spacing:.04em;line-height:1;margin-bottom:4px}
+.sec-sub{font-family:var(--fm);font-size:10px;color:var(--t3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:28px}
+.sec-sub span{color:var(--p2)}
+
+.page{display:none}.page.active{display:block}
+
+/* FORM */
+.lbl{font-family:var(--fm);font-size:10px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px}
+input[type=text],textarea,select{background:var(--bg4);border:1px solid var(--line2);border-radius:6px;padding:8px 12px;color:var(--t1);font-family:var(--fb);font-size:13px;outline:none;width:100%;transition:border-color .2s}
+input[type=text]:focus,textarea:focus,select:focus{border-color:var(--p)}
+textarea{font-family:var(--fm);font-size:12px;resize:vertical}
+::placeholder{color:var(--t3)}
+
+.mb16{margin-bottom:16px}.mb24{margin-bottom:24px}.mt16{margin-top:16px}
+</style>
+</head>
+<body>
+
+<!-- ───────────────────────── NAV ───────────────────────────── -->
+<nav class="nav">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <span>THE FORGE</span>
+    <span class="logo-pill">COMMAND CENTRE</span>
+  </div>
+  <a href="#" class="tab active" onclick="show('command')">COMMAND</a>
+  <a href="#" class="tab" onclick="show('build')">BUILD</a>
+  <a href="#" class="tab" onclick="show('upgrade')">UPGRADE</a>
+  <a href="#" class="tab" onclick="show('queue')">QUEUE <span class="badge">2</span></a>
+  <a href="#" class="tab" onclick="show('active')">ACTIVE <span class="badge purple">1</span></a>
+  <a href="#" class="tab" onclick="show('history')">HISTORY</a>
+  <a href="#" class="tab" onclick="show('intelligence')">INTELLIGENCE</a>
+  <a href="#" class="tab" onclick="show('settings')" style="margin-left:auto">SETTINGS</a>
+  <div class="nav-right">
+    <span class="time" id="clock">00:00:00</span>
+    <div class="avatar">F</div>
+  </div>
+</nav>
+
+<div class="shell">
+
+<!-- ══════════════ COMMAND ══════════════ -->
+<div class="page active" id="page-command">
+  <div class="hero">
+    <div>
+      <div class="hero-eyebrow">⚒ AI Build Engine · Sydney, AUS</div>
+      <div class="hero-title">THE FORGE<br>COMMAND CENTRE</div>
+      <div class="hero-sub">Blueprint document → complete deployable codebase in 15–25 minutes. AI-powered, production-ready, every time.</div>
+    </div>
+    <div class="hero-stats">
+      <div class="hs"><div class="hs-val" style="color:var(--p2)">24</div><div class="hs-lbl">Total Builds</div></div>
+      <div class="hs"><div class="hs-val" style="color:var(--green)">8</div><div class="hs-lbl">Deployed</div></div>
+      <div class="hs"><div class="hs-val" style="color:var(--cyan)">1</div><div class="hs-lbl">Building Now</div></div>
+      <div class="hs"><div class="hs-val" style="color:var(--p2)">33%</div><div class="hs-lbl">Success Rate</div></div>
+    </div>
+  </div>
+
+  <div class="alert amber mb24">
+    <span class="alert-icon">⏳</span>
+    <div class="alert-body">
+      <div class="alert-title">2 builds awaiting spec approval</div>
+      <div class="alert-sub">Review the generated spec and approve to start code generation</div>
+    </div>
+    <a href="#" class="btn btn-amber btn-sm" onclick="show('queue')">REVIEW</a>
+  </div>
+
+  <div class="g6">
+    <div class="kpi-card purple"><div class="kpi-lbl">Total Runs</div><div class="kpi-val" style="color:var(--p2)">24</div><div class="kpi-sub">All time</div></div>
+    <div class="kpi-card green"><div class="kpi-lbl">Complete</div><div class="kpi-val" style="color:var(--green)">8</div><div class="kpi-sub">Ready to deploy</div></div>
+    <div class="kpi-card"><div class="kpi-lbl">Building</div><div class="kpi-val" style="color:var(--cyan)">1</div><div class="kpi-sub">In pipeline</div></div>
+    <div class="kpi-card red"><div class="kpi-lbl">Failed</div><div class="kpi-val" style="color:var(--red)">3</div><div class="kpi-sub">Needs review</div></div>
+    <div class="kpi-card amber"><div class="kpi-lbl">Awaiting</div><div class="kpi-val" style="color:var(--amber)">2</div><div class="kpi-sub">Your approval</div></div>
+    <div class="kpi-card"><div class="kpi-lbl">Files Generated</div><div class="kpi-val" style="color:var(--t1)">639</div><div class="kpi-sub">All builds</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Live Activity Feed</div>
+      <div class="feed-item">
+        <div class="feed-icon">✅</div>
+        <div class="feed-body"><div class="feed-title">BuildRight AI Agent</div><div class="feed-sub">Build complete — 87 files</div></div>
+        <div class="feed-time">12m ago</div>
+      </div>
+      <div class="feed-item">
+        <div class="feed-icon">⚡</div>
+        <div class="feed-body"><div class="feed-title">Trading OS v2</div><div class="feed-sub">Generating code — layer 4/6</div></div>
+        <div class="feed-time">2m ago</div>
+      </div>
+      <div class="feed-item">
+        <div class="feed-icon">⏳</div>
+        <div class="feed-body"><div class="feed-title">ARIA Research Agent</div><div class="feed-sub">Spec ready — awaiting approval</div></div>
+        <div class="feed-time">8m ago</div>
+      </div>
+      <div class="feed-item">
+        <div class="feed-icon">❌</div>
+        <div class="feed-body"><div class="feed-title">The Office Dashboard</div><div class="feed-sub">Failed — retry in queue</div></div>
+        <div class="feed-time">1h ago</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Recent Builds</div>
+      <a href="#" class="pipe-card" onclick="show('run-status')">
+        <div class="pipe-card-name">Trading OS v2</div>
+        <div class="pipe-card-meta"><span class="tag tag-cyan">GENERATING</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">2m ago</span></div>
+      </a>
+      <a href="#" class="pipe-card" onclick="show('queue')">
+        <div class="pipe-card-name">ARIA Research Agent</div>
+        <div class="pipe-card-meta"><span class="tag tag-amber">AWAITING APPROVAL</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">8m ago</span></div>
+      </a>
+      <a href="#" class="pipe-card">
+        <div class="pipe-card-name">BuildRight AI Agent</div>
+        <div class="pipe-card-meta"><span class="tag tag-green">COMPLETE</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">12m ago</span></div>
+      </a>
+      <div class="div"></div>
+      <div style="display:flex;gap:8px">
+        <a href="#" class="btn btn-purple btn-sm" onclick="show('build')" style="flex:1;justify-content:center">+ NEW BUILD</a>
+        <a href="#" class="btn btn-ghost btn-sm" onclick="show('history')" style="flex:1;justify-content:center">ALL BUILDS</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt16">
+    <div class="card-title">7-Stage Build Pipeline</div>
+    <div class="flow">
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">1</div><div class="flow-lbl">Parse</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">2</div><div class="flow-lbl">Spec</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">3</div><div class="flow-lbl">Architect</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">4</div><div class="flow-lbl">Generate</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">5</div><div class="flow-lbl">Secrets</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1"><div class="flow-num">6</div><div class="flow-lbl">README</div></div><div class="flow-arrow">›</div></div>
+      <div class="flow-step" style="flex:1"><div class="flow-num">7</div><div class="flow-lbl">Package</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ BUILD ══════════════ -->
+<div class="page" id="page-build">
+  <div class="sec-title">Build</div>
+  <div class="sec-sub">Submit a blueprint document → <span>get a complete deployable codebase in 15–25 minutes</span></div>
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px">
+    <div class="card">
+      <div class="card-title">Blueprint Submission</div>
+      <div class="mb16"><label class="lbl">Agent Name *</label><input type="text" placeholder="e.g. BuildRight AI Agent"/></div>
+      <div class="mb16" style="display:flex;gap:8px">
+        <button class="btn btn-purple" style="flex:1;justify-content:center">PASTE TEXT</button>
+        <button class="btn btn-ghost" style="flex:1;justify-content:center">UPLOAD FILES</button>
+      </div>
+      <div class="mb16"><label class="lbl">Blueprint Document *</label><textarea rows="14" placeholder="Paste your blueprint here. Describe what the agent does, its database schema, API routes, dashboard screens, and required services..."></textarea></div>
+      <div class="mb16"><label class="lbl">GitHub Repo Name (optional)</label><input type="text" placeholder="e.g. buildright-ai-agent"/></div>
+      <button class="btn btn-purple" style="width:100%;justify-content:center;padding:12px;font-size:12px">⚒ START BUILD →</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="card-title">What The Forge Builds</div>
+        <div class="stat-row"><span class="stat-lbl">Database Schema</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">SQLAlchemy + pgvector</span></div>
+        <div class="stat-row"><span class="stat-lbl">Infrastructure</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">Docker + compose</span></div>
+        <div class="stat-row"><span class="stat-lbl">Backend API</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">FastAPI routes + auth</span></div>
+        <div class="stat-row"><span class="stat-lbl">Worker Logic</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">RQ workers + scheduler</span></div>
+        <div class="stat-row"><span class="stat-lbl">Web Dashboard</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">React + Vite + Tailwind</span></div>
+        <div class="stat-row"><span class="stat-lbl">Deployment</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">fly.toml + CI/CD</span></div>
+        <div class="stat-row"><span class="stat-lbl">Documentation</span><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">README + FLY_SECRETS</span></div>
+      </div>
+      <div class="card green">
+        <div class="card-title">Pipeline Stages</div>
+        <div style="font-family:var(--fm);font-size:10px;color:var(--t2);display:flex;flex-direction:column;gap:6px">
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">1. Parse Blueprint</div>
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">2. Confirm Spec</div>
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">3. Architecture</div>
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">4. Generate Code</div>
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">5. Secrets Setup</div>
+          <div style="padding:4px 0;border-bottom:1px solid var(--line)">6. README</div>
+          <div style="padding:4px 0">7. Package ZIP</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ QUEUE ══════════════ -->
+<div class="page" id="page-queue">
+  <div class="sec-title">Queue</div>
+  <div class="sec-sub">Builds awaiting your spec review and approval · <span>2 pending</span></div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="border-color:var(--amber);box-shadow:0 0 28px var(--amber-d)">
+      <div style="display:flex;align-items:flex-start;gap:16px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 6px var(--amber);flex-shrink:0;animation:pulse 2s infinite;display:inline-block"></span>
+            <span style="font-family:var(--fm);font-size:12px;font-weight:700">ARIA Research Agent</span>
+            <span class="tag tag-amber">AWAITING APPROVAL</span>
+          </div>
+          <div style="font-size:12px;color:var(--t2);margin-bottom:8px;padding-left:16px">12-domain research engine scanning Models, Trading, Real Estate, Business Automation, APIs, and more. Weekly deep synthesis with opportunity radar.</div>
+          <div style="display:flex;gap:24px;padding-left:16px;margin-bottom:8px">
+            <div style="text-align:center"><div style="font-family:var(--fd);font-size:20px;color:var(--p2)">47</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3);text-transform:uppercase">Files</div></div>
+            <div style="text-align:center"><div style="font-family:var(--fd);font-size:20px;color:var(--p2)">6</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3);text-transform:uppercase">Services</div></div>
+            <div style="text-align:center"><div style="font-family:var(--fd);font-size:20px;color:var(--p2)">8</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3);text-transform:uppercase">Tables</div></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm">REVIEW SPEC</button>
+          <button class="btn btn-green btn-sm">✓ APPROVE</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="border-color:var(--amber);box-shadow:0 0 28px var(--amber-d)">
+      <div style="display:flex;align-items:flex-start;gap:16px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block;border-radius:50%;animation:pulse 2s infinite"></span>
+            <span style="font-family:var(--fm);font-size:12px;font-weight:700">The Office — Unified Command</span>
+            <span class="tag tag-amber">AWAITING APPROVAL</span>
+          </div>
+          <div style="font-size:12px;color:var(--t2);padding-left:16px">Single executive dashboard across all 5 agents. Health scores, anomaly prediction, cross-business financials, unified chat.</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm">REVIEW SPEC</button>
+          <button class="btn btn-green btn-sm">✓ APPROVE</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ ACTIVE ══════════════ -->
+<div class="page" id="page-active">
+  <div class="sec-title">Active</div>
+  <div class="sec-sub">Builds currently in the pipeline · <span>auto-refreshes every 5s</span></div>
+  <div class="g6 mb24">
+    <div class="kpi-card"><div class="kpi-lbl">⏳ Queued</div><div class="kpi-val" style="color:var(--t3)">0</div></div>
+    <div class="kpi-card purple"><div class="kpi-lbl">🔍 Validating</div><div class="kpi-val" style="color:var(--p2)">0</div></div>
+    <div class="kpi-card purple"><div class="kpi-lbl">📖 Parsing</div><div class="kpi-val" style="color:var(--p2)">0</div></div>
+    <div class="kpi-card"><div class="kpi-lbl">🗺 Architecting</div><div class="kpi-val" style="color:var(--violet)">0</div></div>
+    <div class="kpi-card purple"><div class="kpi-lbl">⚡ Generating</div><div class="kpi-val" style="color:var(--cyan)">1</div></div>
+    <div class="kpi-card"><div class="kpi-lbl">📦 Packaging</div><div class="kpi-val" style="color:var(--t3)">0</div></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">⚡</span>
+        <div>
+          <div style="font-weight:600;color:var(--t1);font-size:13px">Trading OS v2</div>
+          <div style="font-family:var(--fm);font-size:10px;color:var(--t3)">a3f91b2c… · 2m ago</div>
+        </div>
+      </div>
+      <span class="tag tag-cyan">GENERATING</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-family:var(--fm);font-size:10px;color:var(--t3);margin-bottom:4px">
+      <span>34/87 files</span><span style="color:var(--p2);font-weight:700">39%</span>
+    </div>
+    <div class="prog"><div class="prog-fill" style="width:39%;background:linear-gradient(90deg,var(--p),var(--p2))"></div></div>
+  </div>
+</div>
+
+<!-- ══════════════ HISTORY ══════════════ -->
+<div class="page" id="page-history">
+  <div class="sec-title">History</div>
+  <div class="sec-sub">All builds · <span>24 runs</span></div>
+  <div style="display:flex;gap:8px;margin-bottom:20px">
+    <button class="btn btn-purple btn-sm">ALL</button>
+    <button class="btn btn-ghost btn-sm">COMPLETE</button>
+    <button class="btn btn-ghost btn-sm">FAILED</button>
+    <button class="btn btn-ghost btn-sm">CONFIRMING</button>
+    <button class="btn btn-ghost btn-sm">GENERATING</button>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="tbl">
+      <thead><tr><th>Agent Name</th><th>Run ID</th><th>Status</th><th>Files</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><strong>Trading OS v2</strong></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">a3f91b2c…</span></td><td><span class="tag tag-cyan">GENERATING</span></td><td><span style="font-family:var(--fm);font-size:11px">34/87</span></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">2m ago</span></td><td><button class="btn btn-ghost btn-sm">VIEW →</button></td></tr>
+        <tr><td><strong>ARIA Research Agent</strong></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">b82cf411…</span></td><td><span class="tag tag-amber">CONFIRMING</span></td><td>—</td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">8m ago</span></td><td><button class="btn btn-ghost btn-sm">VIEW →</button></td></tr>
+        <tr><td><strong>BuildRight AI Agent</strong></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">7d2a9f3e…</span></td><td><span class="tag tag-green">COMPLETE</span></td><td><span style="font-family:var(--fm);font-size:11px">87/87</span></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">12m ago</span></td><td><button class="btn btn-ghost btn-sm">VIEW →</button></td></tr>
+        <tr><td><strong>The Office Dashboard</strong></td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">c91fe802…</span></td><td><span class="tag tag-red">FAILED</span></td><td>—</td><td><span style="font-family:var(--fm);font-size:10px;color:var(--t3)">1h ago</span></td><td><button class="btn btn-ghost btn-sm">VIEW →</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════ INTELLIGENCE ══════════════ -->
+<div class="page" id="page-intelligence">
+  <div class="sec-title">Intelligence</div>
+  <div class="sec-sub">Knowledge base, meta-rules, and model routing — <span>The Forge learns from every build</span></div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
+    <div class="kpi-card purple"><div class="kpi-lbl">KB Records</div><div class="kpi-val" style="color:var(--p2)">189</div><div class="kpi-sub">Arch patterns</div></div>
+    <div class="kpi-card" style="border-color:var(--violet)"><div class="kpi-lbl">Meta Rules</div><div class="kpi-val" style="color:var(--violet)">80</div><div class="kpi-sub">Auto-extracted</div></div>
+    <div class="kpi-card" style="border-color:var(--cyan)"><div class="kpi-lbl">Build Templates</div><div class="kpi-val" style="color:var(--cyan)">15</div><div class="kpi-sub">Reusable</div></div>
+    <div class="kpi-card amber"><div class="kpi-lbl">Error Patterns</div><div class="kpi-val" style="color:var(--amber)">60</div><div class="kpi-sub">Known fixes</div></div>
+    <div class="kpi-card green"><div class="kpi-lbl">Agent Versions</div><div class="kpi-val" style="color:var(--green)">5</div><div class="kpi-sub">Snapshots</div></div>
+  </div>
+  <div class="card purple mb24" style="border-color:var(--p)">
+    <div class="card-title">Intelligence Layer — 7 Files</div>
+    <div class="flow">
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">MC</div><div class="flow-lbl">model_config</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">KB</div><div class="flow-lbl">knowledge_base</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">MR</div><div class="flow-lbl">meta_rules</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">CA</div><div class="flow-lbl">context_assembler</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">EV</div><div class="flow-lbl">evaluator</div></div><div class="flow-arrow">›</div></div>
+      <div style="display:flex;align-items:center;flex:1"><div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">VR</div><div class="flow-lbl">verifier</div></div><div class="flow-arrow">›</div></div>
+      <div class="flow-step" style="flex:1;min-width:90px"><div class="flow-num" style="font-size:16px">PM</div><div class="flow-lbl">perf_monitor</div></div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="card">
+      <div class="card-title">Model Routing</div>
+      <div class="stat-row"><div><div class="stat-lbl">Opus 4.6</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3)">claude-opus-4-6</div></div><span class="tag tag-gray" style="font-size:9px">Reasoning</span></div>
+      <div class="stat-row"><div><div class="stat-lbl">Sonnet 4.6</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3)">claude-sonnet-4-6</div></div><span class="tag tag-gray" style="font-size:9px">Synthesis</span></div>
+      <div class="stat-row"><div><div class="stat-lbl">Haiku 4.5</div><div style="font-family:var(--fm);font-size:9px;color:var(--t3)">claude-haiku-4-5</div></div><span class="tag tag-gray" style="font-size:9px">Classification</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Knowledge Engine</div>
+      <div class="stat-row"><span class="stat-lbl">collector</span><span style="font-family:var(--fm);font-size:9px;color:var(--t3)">Tavily + RSS + YouTube</span></div>
+      <div class="stat-row"><span class="stat-lbl">embedder</span><span style="font-family:var(--fm);font-size:9px;color:var(--t3)">400-token chunks</span></div>
+      <div class="stat-row"><span class="stat-lbl">retriever</span><span style="font-family:var(--fm);font-size:9px;color:var(--t3)">Top 8 semantic</span></div>
+      <div class="stat-row"><span class="stat-lbl">live_search</span><span style="font-family:var(--fm);font-size:9px;color:var(--t3)">Real-time Tavily</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Embedding Model</div>
+      <div style="margin-bottom:10px"><div style="font-family:var(--fm);font-size:10px;color:var(--t3);margin-bottom:4px">PROVIDER</div><span class="tag tag-green">OpenAI</span></div>
+      <div style="margin-bottom:10px"><div style="font-family:var(--fm);font-size:10px;color:var(--t3);margin-bottom:4px">MODEL</div><div style="font-family:var(--fm);font-size:11px">text-embedding-3-small</div></div>
+      <div><div style="font-family:var(--fm);font-size:10px;color:var(--t3);margin-bottom:4px">VECTOR STORE</div><span class="tag tag-purple">pgvector</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ SETTINGS ══════════════ -->
+<div class="page" id="page-settings">
+  <div class="sec-title">Settings</div>
+  <div class="sec-sub">Configuration, secrets status, and system integrations</div>
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px">
+    <div class="card">
+      <div class="card-title">Build Settings</div>
+      <div class="stat-row" style="padding-top:12px">
+        <div><div style="font-size:12px;font-weight:600">Push to GitHub</div><div style="font-family:var(--fm);font-size:10px;color:var(--t3)">Auto-push generated code after build</div></div>
+        <input type="checkbox" checked style="accent-color:var(--p);width:16px;height:16px"/>
+      </div>
+      <div class="stat-row">
+        <div><div style="font-size:12px;font-weight:600">Auto-Approve Low Risk</div><div style="font-family:var(--fm);font-size:10px;color:var(--t3)">Skip manual approval for simple builds</div></div>
+        <input type="checkbox" style="accent-color:var(--p);width:16px;height:16px"/>
+      </div>
+      <div style="margin:14px 0"><label class="lbl">Default Fly.io Region</label><select><option>SYD</option><option>LHR</option><option>IAD</option></select></div>
+      <div style="margin-bottom:14px"><label class="lbl">Max Parallel Builds</label><input type="text" value="2"/></div>
+      <div class="div"></div>
+      <div class="card-title">Notification Settings</div>
+      <div style="margin:14px 0"><label class="lbl">Notification Email</label><input type="text" placeholder="jackson@example.com"/></div>
+      <div style="margin-bottom:14px"><label class="lbl">Telegram Chat ID</label><input type="text" placeholder="Your personal Telegram Chat ID"/></div>
+      <button class="btn btn-purple" style="margin-top:8px;padding:10px 24px">SAVE SETTINGS</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="card-title">Secrets Status</div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">ANTHROPIC_API_KEY</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">DATABASE_URL</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">REDIS_URL</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">OPENAI_API_KEY</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">TELEGRAM_BOT_TOKEN</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot on"></div><div><div class="int-name">GITHUB_TOKEN</div><div class="int-status on">SET</div></div></div>
+        <div class="int-badge"><div class="int-dot amber"></div><div><div class="int-name">SENTRY_DSN</div><div class="int-status off">NOT SET</div></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Deployment Targets</div>
+        <div class="int-badge"><div style="width:36px;height:36px;border-radius:8px;background:var(--p-d);display:flex;align-items:center;justify-content:center;font-size:14px">🚀</div><div style="flex:1"><div class="int-name">API</div><div style="font-family:var(--fm);font-size:10px;color:var(--t3)">the-forge-api.fly.dev</div></div><div class="int-dot on"></div></div>
+        <div class="int-badge"><div style="width:36px;height:36px;border-radius:8px;background:var(--p-d);display:flex;align-items:center;justify-content:center;font-size:14px">🚀</div><div style="flex:1"><div class="int-name">Worker</div><div style="font-family:var(--fm);font-size:10px;color:var(--t3)">the-forge-worker.fly.dev</div></div><div class="int-dot on"></div></div>
+        <div class="int-badge"><div style="width:36px;height:36px;border-radius:8px;background:var(--p-d);display:flex;align-items:center;justify-content:center;font-size:14px">🚀</div><div style="flex:1"><div class="int-name">Dashboard</div><div style="font-family:var(--fm);font-size:10px;color:var(--t3)">the-forge-dashboard1.fly.dev</div></div><div class="int-dot on"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /shell -->
+
+<script>
+// Clock
+function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}
+tick();setInterval(tick,1000);
+
+// Tab switching
+function show(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  const pg=document.getElementById('page-'+id);
+  if(pg)pg.classList.add('active');
+  event.preventDefault();
+  // Highlight clicked tab
+  if(event&&event.target){
+    let el=event.target;
+    while(el&&!el.classList.contains('tab'))el=el.parentElement;
+    if(el)el.classList.add('active');
+  }
+}
+</script>
+</body>
+</html>

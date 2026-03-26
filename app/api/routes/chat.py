@@ -14,10 +14,12 @@ Tool use loop (max 5 iterations):
   3. Return result to Claude, continue until stop_reason == "end_turn"
 """
 
+import json
 from typing import Optional, Any
 
 import anthropic
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import func, select, or_
@@ -229,7 +231,7 @@ KNOWLEDGE BASE (8 domains, continuously updated):
 FLY.IO INFRASTRUCTURE:
 - the-forge-api: shared-cpu-4x, 2GB, min_machines_running=1
 - the-forge-worker: shared-cpu-4x, 4GB (runs APScheduler internally — no separate scheduler)
-- the-forge-dashboard-v6: shared-cpu-1x, 512MB
+- the-forge-dashboard-v7: shared-cpu-1x, 512MB
 - the-forge-db: Fly.io managed Postgres (SHARED across all agents — each agent gets own database)
 - the-forge-redis: Fly.io managed Redis
 
@@ -517,3 +519,110 @@ async def chat(
     except Exception as exc:
         logger.error(f"Chat endpoint error: {exc}")
         return ChatResponse(reply=f"Chat error: {exc}", model=_CHAT_MODEL)
+
+
+# ── Streaming chat endpoint ────────────────────────────────────────────────────
+
+@router.post("/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    session: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """
+    Streaming chat — emits SSE events as Claude responds.
+
+    Event types:
+      {"type": "start"}                                   — context built, first call starting
+      {"type": "text_delta", "text": "..."}               — token from Claude
+      {"type": "tool_use", "name": "...", "input": {...}} — Claude calling a tool
+      {"type": "tool_result", "name": "..."}              — tool execution complete
+      {"type": "done", "tool_calls_made": N}              — finished
+      {"type": "error", "message": "..."}                 — something failed
+    """
+    async def generate():
+        try:
+            client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+            last_user_msg = next(
+                (m.content for m in reversed(req.messages) if m.role == "user"), ""
+            )
+            db_context = await _build_db_context(session, last_user_msg)
+
+            system_parts = [FORGE_SYSTEM_PROMPT, db_context]
+            if req.memory_notes and req.memory_notes.strip():
+                system_parts.append(f"\n\nUSER MEMORY NOTES (always respect these):\n{req.memory_notes}")
+            if req.files_context and req.files_context.strip():
+                system_parts.append(f"\n\nUSER UPLOADED FILES:\n{req.files_context}")
+            system_prompt = "".join(system_parts)
+
+            messages: list[dict] = [
+                {"role": msg.role, "content": msg.content}
+                for msg in req.messages
+                if msg.role in ("user", "assistant")
+            ]
+
+            tool_calls_made = 0
+            yield f"data: {json.dumps({'type': 'start'})}\n\n"
+
+            for iteration in range(_MAX_TOOL_ITERATIONS + 1):
+                async with client.messages.stream(
+                    model=_CHAT_MODEL,
+                    max_tokens=_MAX_TOKENS,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=FORGE_TOOLS,
+                ) as stream:
+                    # Stream text tokens to the frontend in real time
+                    async for text in stream.text_stream:
+                        yield f"data: {json.dumps({'type': 'text_delta', 'text': text})}\n\n"
+
+                    final_message = await stream.get_final_message()
+
+                logger.info(
+                    f"Chat stream iter {iteration}: stop_reason={final_message.stop_reason} "
+                    f"input={final_message.usage.input_tokens} output={final_message.usage.output_tokens}"
+                )
+
+                if final_message.stop_reason == "end_turn":
+                    break
+
+                if final_message.stop_reason == "tool_use":
+                    if iteration >= _MAX_TOOL_ITERATIONS:
+                        break
+
+                    tool_results = []
+                    for block in final_message.content:
+                        if block.type == "tool_use":
+                            tool_calls_made += 1
+                            yield f"data: {json.dumps({'type': 'tool_use', 'name': block.name, 'input': block.input})}\n\n"
+                            result = await _execute_tool(block.name, block.input, session)
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": result,
+                            })
+                            yield f"data: {json.dumps({'type': 'tool_result', 'name': block.name})}\n\n"
+
+                    messages.append({
+                        "role": "assistant",
+                        "content": [b.model_dump() for b in final_message.content],
+                    })
+                    messages.append({"role": "user", "content": tool_results})
+                else:
+                    break
+
+            yield f"data: {json.dumps({'type': 'done', 'tool_calls_made': tool_calls_made})}\n\n"
+
+        except Exception as exc:
+            logger.error(f"Chat stream error: {exc}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

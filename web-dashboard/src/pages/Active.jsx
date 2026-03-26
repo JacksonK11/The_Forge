@@ -47,7 +47,23 @@ export default function Active() {
       <div className="sec-sub">Builds currently in the pipeline · <span>auto-refreshes every 5s</span></div>
 
       {loading ? (
-        <div style={{ color: "var(--t3)", fontFamily: "var(--fm)", fontSize: 11, padding: "40px 0", textAlign: "center" }}>Loading...</div>
+        <div className="gcol">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="ddd-card" style={{ opacity: 0.5 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--t3)", opacity: 0.3 }} />
+                  <div>
+                    <div style={{ height: 12, width: 140, background: "var(--t3)", borderRadius: 4, marginBottom: 6, opacity: 0.3 }} />
+                    <div style={{ height: 9, width: 80, background: "var(--t3)", borderRadius: 4, opacity: 0.2 }} />
+                  </div>
+                </div>
+                <div style={{ height: 20, width: 70, background: "var(--t3)", borderRadius: 10, opacity: 0.2 }} />
+              </div>
+              <div style={{ height: 4, background: "var(--t3)", borderRadius: 2, opacity: 0.15 }} />
+            </div>
+          ))}
+        </div>
       ) : runs.length === 0 ? (
         <div className="ddd-card" style={{ textAlign: "center", padding: "48px" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>😴</div>

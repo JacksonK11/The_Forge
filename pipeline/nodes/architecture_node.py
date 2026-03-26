@@ -140,10 +140,24 @@ def _ensure_standard_files(manifest: dict, spec: dict) -> dict:
     # - dashboard: served as static files from API (no separate app needed)
     # - scheduler: APScheduler runs inside the worker process
     # - postgres/db: all agents share the-forge-db managed Postgres
+    # Uses suffix matching to avoid false-positives (e.g. "trading-db-api.toml" is kept).
     def _is_unwanted_fly_toml(path: str) -> bool:
         p = path.lower()
-        return ("fly" in p and p.endswith(".toml") and
-                any(x in p for x in ("dashboard", "scheduler", "frontend", "ui", "postgres", "db", "database")))
+        if not p.endswith(".toml"):
+            return False
+        basename = p.split("/")[-1]
+        if not (basename.startswith("fly.") or basename.startswith("fly-")):
+            return False
+        unwanted_suffixes = (
+            "-dashboard.toml",
+            "-scheduler.toml",
+            "-frontend.toml",
+            "-ui.toml",
+            "-postgres.toml",
+            "-db.toml",
+            "-database.toml",
+        )
+        return any(basename.endswith(s) for s in unwanted_suffixes)
 
     before = len(manifest["file_manifest"])
     manifest["file_manifest"] = [f for f in manifest["file_manifest"] if not _is_unwanted_fly_toml(f["path"])]
