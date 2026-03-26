@@ -54,8 +54,8 @@ export default function Command() {
   const failed      = stats?.failed       ?? 0;
   const active      = stats?.active_builds ?? 0;
   const successRate = totalRuns > 0 ? Math.round((complete / totalRuns) * 100) : 0;
-  const pending     = notifications?.pending_approvals ?? 0;
-  const activity    = notifications?.recent_activity   ?? [];
+  const pending     = notifications?.pendingApprovals ?? 0;
+  const activity    = notifications?.recentActivity   ?? [];
 
   return (
     <>

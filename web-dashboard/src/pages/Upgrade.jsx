@@ -23,8 +23,9 @@ export default function Upgrade() {
     setSubmitting(true);
     try {
       const result = await planIncrementalChange({
-        agent_id: agentId.trim(),
-        change_description: inputMode === "text" ? changeText.trim() : "",
+        run_id: agentId.trim(),
+        action: "modify",
+        description: inputMode === "text" ? changeText.trim() : "",
         repo_name: repoName.trim(),
         push_to_github: pushToGithub,
         files: inputMode === "file" ? files : [],
