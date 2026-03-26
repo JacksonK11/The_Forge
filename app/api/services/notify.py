@@ -152,7 +152,7 @@ async def notify_build_complete(
     if github_repo_url:
         text += f"\nGitHub: <a href='{github_repo_url}'>{github_repo_url}</a>\n"
 
-    text += f"\n<a href='https://the-forge-dashboard-v5.fly.dev/runs/{run_id}'>View Build →</a>"
+    text += f"\n<a href='https://the-forge-dashboard-v6.fly.dev/runs/{run_id}'>View Build →</a>"
     await _send(text)
 
     if callback_url:

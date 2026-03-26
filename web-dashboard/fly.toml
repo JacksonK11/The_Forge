@@ -1,4 +1,4 @@
-app = "the-forge-dashboard-v5"
+app = "the-forge-dashboard-v6"
 primary_region = "lhr"
 
 [build]
@@ -25,4 +25,4 @@ primary_region = "lhr"
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 512

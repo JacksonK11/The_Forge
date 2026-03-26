@@ -52,7 +52,8 @@ KB_ARCHITECTURE = [
     ("FastAPI + async SQLAlchemy + asyncpg is the standard backend stack. Use async_sessionmaker with expire_on_commit=False. Pool pre-ping=True. Every agent (BuildRight, ARIA, Trading OS, The Office) uses this pattern.", "proven_5_builds"),
     ("Database models use UUID primary keys (uuid.uuid4), TIMESTAMPTZ for all datetimes with server_default=func.now(), JSONB for flexible metadata fields, and Vector(1536) from pgvector for embedding columns.", "proven_5_builds"),
     ("Every agent has a dedicated database.py with: create_async_engine, AsyncSessionLocal factory, init_db() that calls Base.metadata.create_all, and individual helper functions per table. Never use raw SQL elsewhere.", "proven_5_builds"),
-    ("Fly.io deployment: API server on shared-cpu-1x 512MB, worker on shared-cpu-2x 1-2GB, dashboard on shared-cpu-1x 256MB with Nginx. Postgres managed, Redis managed. Primary region syd for Australian businesses, lhr for others.", "proven_5_builds"),
+    ("Fly.io deployment: API server on shared-cpu-1x 512MB with min_machines_running=1, worker on shared-cpu-2x 2GB. React dashboard served as static files from the API (no separate dashboard app). All agents share one managed Postgres 'the-forge-db' — each agent gets its own database named {agent_slug}_db. Setup: flyctl postgres attach the-forge-db --app {api_app} --database-name {agent_slug}_db. Primary region syd for Australian businesses, lhr for others.", "proven_5_builds"),
+    ("Shared Postgres pattern: the-forge-db is the single managed Postgres instance for all agents in The Office portfolio. Each agent uses a separate database (not schema) named {agent_slug}_db. This gives full isolation (separate connection pools, separate migrations) at zero extra cost vs a new Postgres app ($0 vs ~A$63/month). flyctl postgres attach sets DATABASE_URL automatically on the API app. Copy that value to the worker with flyctl secrets set.", "proven_3_builds"),
     ("LangGraph state machine for multi-step pipelines. State is a dict passed between nodes. Each node has single responsibility. build_graph() returns compiled graph. ainvoke() for async execution. Used in Trading OS, ARIA, The Forge.", "proven_3_builds"),
     ("React dashboard with Tailwind CSS utility classes only. No CSS files. Vite for build. Dark theme standard: bg-gray-950 background, colored accents. Multi-stage Docker: Node build → Nginx Alpine serve. Final image <30MB.", "proven_5_builds"),
     ("RQ (Redis Queue) for background job processing. Worker polls forge-queue. Job functions are sync wrappers around async: def job(id): asyncio.run(_job(id)). Always update status at every step so dashboard shows live progress.", "proven_4_builds"),
@@ -106,6 +107,13 @@ META_RULES = [
     ("generation", "Prefer JSONB over JSON for PostgreSQL columns — supports GIN indexing and querying", 0.90),
     ("generation", "Prefer shared-cpu-1x 512MB for API servers — sufficient for most FastAPI workloads", 0.85),
     ("generation", "Prefer shared-cpu-2x 1-2GB for worker processes — handles concurrent Claude API calls", 0.90),
+    ("generation", "Always set min_machines_running = 1 in fly.toml http_service block — prevents Fly.io from creating 2 machines for HA on first deploy, saving ~A$10/month per agent", 0.99),
+    ("generation", "Never generate a separate scheduler fly.toml or Fly.io app for APScheduler — run APScheduler inside the worker process. A separate scheduler service wastes ~A$9/month for zero benefit.", 0.99),
+    ("generation", "Always add --ha=false to flyctl deploy commands in GitHub Actions — Fly.io creates 2 machines by default for new apps, doubling cost unnecessarily", 0.99),
+    ("generation", "Never generate a separate dashboard Fly.io app or fly.toml for the React dashboard — serve it as static files from the API using FastAPI StaticFiles. Dockerfile.api uses a multi-stage build to compile the React app and copy dist/ into the Python image. This eliminates one Fly machine per agent (~A$4/month saved).", 0.99),
+    ("generation", "FastAPI main.py must mount the React dashboard AFTER all routes: app.mount('/', StaticFiles(directory='dist', html=True), name='static'). Only add this mount if the dist/ directory exists at runtime.", 0.95),
+    ("generation", "Never generate a separate Fly.io Postgres app for any agent — all agents share the existing managed Postgres 'the-forge-db'. Each agent uses its own database named {agent_slug}_db on that shared instance. Setup: flyctl postgres attach the-forge-db --app {api_app} --database-name {agent_slug}_db. This saves ~A$63/month per agent.", 0.99),
+    ("generation", "DATABASE_URL in .env.example must reference a database named {agent_slug}_db (not postgres or default). In docker-compose.yml the local Postgres container should create this database: POSTGRES_DB: {agent_slug}_db.", 0.95),
     ("generation", "Prefer Tailwind utility classes only, no custom CSS files — consistent dark theme: bg-gray-950", 0.90),
     ("generation", "Prefer routing scoring and classification tasks to Haiku — 80% cheaper, equally accurate for classification", 0.95),
     ("generation", "Prefer RQ over Celery for job queues — simpler, lighter, sufficient for single-machine deployments", 0.90),
@@ -363,6 +371,7 @@ primary_region = "syd"
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
+  min_machines_running = 1
 
 [[http_service.checks]]
   grace_period = "10s"
@@ -387,10 +396,33 @@ primary_region = "syd"
 [env]
   APP_ENV = "production"
 
+# Worker runs APScheduler internally — no separate scheduler service needed
 [[vm]]
   cpu_kind = "shared"
   cpus = 2
   memory_mb = 2048
+''',
+
+    "dockerfile_api_with_dashboard": '''\
+# ── Stage 1: Build React dashboard ───────────────────────────────────────────
+FROM node:22-alpine AS dashboard-build
+WORKDIR /dashboard
+COPY dashboard/package.json ./
+RUN npm install
+COPY dashboard/ .
+RUN npm run build
+
+# ── Stage 2: Python API (serves both API and dashboard) ──────────────────────
+FROM python:3.12-alpine AS api
+RUN apk add --no-cache build-base postgresql-dev libxml2-dev libxslt-dev && rm -rf /var/cache/apk/*
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+COPY --from=dashboard-build /dashboard/dist /app/dist
+RUN adduser -D -u 1000 agent && chown -R agent:agent /app
+USER agent
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "{API_PORT}"]
 ''',
 
     "github_actions_deploy": '''\
@@ -408,7 +440,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@v2
       - name: Deploy {AGENT_NAME} API
-        run: flyctl deploy --app {FLY_APP_NAME}-api --config fly.{FLY_APP_NAME}-api.toml
+        run: flyctl deploy --app {FLY_APP_NAME}-api --config fly.{FLY_APP_NAME}-api.toml --ha=false
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
@@ -420,7 +452,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@v2
       - name: Deploy {AGENT_NAME} Worker
-        run: flyctl deploy --app {FLY_APP_NAME}-worker --config fly.{FLY_APP_NAME}-worker.toml
+        run: flyctl deploy --app {FLY_APP_NAME}-worker --config fly.{FLY_APP_NAME}-worker.toml --ha=false
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 ''',

@@ -136,6 +136,21 @@ def _ensure_standard_files(manifest: dict, spec: dict) -> dict:
             manifest["file_manifest"].append(rf)
             logger.debug(f"Added required file to manifest: {rf['path']}")
 
+    # Remove unnecessary Fly.io service fly.tomls:
+    # - dashboard: served as static files from API (no separate app needed)
+    # - scheduler: APScheduler runs inside the worker process
+    # - postgres/db: all agents share the-forge-db managed Postgres
+    def _is_unwanted_fly_toml(path: str) -> bool:
+        p = path.lower()
+        return ("fly" in p and p.endswith(".toml") and
+                any(x in p for x in ("dashboard", "scheduler", "frontend", "ui", "postgres", "db", "database")))
+
+    before = len(manifest["file_manifest"])
+    manifest["file_manifest"] = [f for f in manifest["file_manifest"] if not _is_unwanted_fly_toml(f["path"])]
+    removed = before - len(manifest["file_manifest"])
+    if removed:
+        logger.info(f"Removed {removed} unnecessary Fly.io service(s) from manifest (dashboard/scheduler serve from API/worker)")
+
     # Sort by layer
     manifest["file_manifest"].sort(key=lambda f: (f.get("layer", 9), f.get("path", "")))
     manifest["total_files"] = len(manifest["file_manifest"])

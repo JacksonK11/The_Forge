@@ -288,6 +288,20 @@ ABSOLUTE RULES — violating any of these means the file will be rejected and re
 9. Loguru for all logging — logger.info(), logger.error(), logger.warning(), logger.debug()
 10. The file must work on first deploy with no modifications
 
+FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
+- fly.toml API services MUST include min_machines_running = 1 in the [http_service] block — prevents Fly from creating 2 machines for HA (doubles cost)
+- fly.toml worker services have NO [http_service] block — they are background processes, no HTTP listener needed
+- NEVER generate a separate dashboard fly.toml, Fly.io app, or Dockerfile.dashboard — the React dashboard is served as static files directly from the API service (saves one entire Fly machine per agent)
+- NEVER generate a separate scheduler fly.toml or Fly.io app — APScheduler runs inside the worker process
+- NEVER generate a separate Fly.io Postgres app — all agents share the existing managed Postgres app "the-forge-db". Each agent gets its own database named {agent_slug}_db on that shared instance. Use flyctl postgres attach to connect.
+- GitHub Actions deploy steps MUST include --ha=false flag: flyctl deploy --app NAME --config FILE --ha=false
+
+DASHBOARD-FROM-API PATTERN — mandatory for every agent with a React dashboard:
+- Dockerfile.api MUST use a multi-stage build: Stage 1 builds the React dashboard (node:22-alpine), Stage 2 runs the Python API (python:3.12-alpine) and copies the built dist/ into /app/dist
+- FastAPI main.py MUST mount the dashboard at the root path AFTER all API routes: app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+- The dashboard src lives in dashboard/ directory. Dockerfile.api copies dashboard/ into the build stage and runs npm install && npm run build
+- This gives the agent one Fly app (API) that serves both the JSON API and the React dashboard — no second machine needed
+
 LAYER 5 DASHBOARD REQUIREMENTS — mandatory for every React dashboard file:
 Every Layer 5 (web dashboard) file MUST include mobile-first PWA support:
 - index.html: viewport meta with viewport-fit=cover and maximum-scale=1; apple-mobile-web-app-capable, apple-mobile-web-app-status-bar-style, apple-mobile-web-app-title meta tags; link rel="manifest" href="/manifest.json"; theme-color meta tag
@@ -537,12 +551,18 @@ FLY SERVICES:
 ENVIRONMENT VARIABLES:
 {env_vars}
 
+SHARED POSTGRES: All agents share the managed Postgres app "the-forge-db". Do NOT create a new Postgres app.
+
 Generate a ready-to-run FLY_SECRETS.txt file with:
 1. A header explaining what to do
-2. One section per Fly.io service
+2. One section per Fly.io service (API and worker only — no dashboard app, no postgres app, no scheduler app)
 3. Every secret the service needs, with `flyctl secrets set KEY=VALUE --app app-name`
 4. For unknown values, use REPLACE_WITH_YOUR_VALUE placeholder and explain where to get it
-5. Instructions for getting the Fly Postgres DATABASE_URL after attaching
+5. A clearly labelled "DATABASE SETUP" section with these exact steps:
+   a. flyctl postgres attach the-forge-db --app {api_app_name} --database-name {agent_slug}_db
+   b. Get DATABASE_URL from: flyctl secrets list --app {api_app_name}
+   c. Copy that exact DATABASE_URL value and set it on the worker: flyctl secrets set DATABASE_URL="<paste-value>" --app {worker_app_name}
+   d. Run migrations: flyctl ssh console --app {api_app_name} -C "alembic upgrade head"
 
 Format as a plain text file the developer can open in a terminal and run commands from."""
 
@@ -565,7 +585,7 @@ Write a README.md with these sections:
 1. Project overview (what it does, brief architecture)
 2. Prerequisites (accounts needed, CLI tools)
 3. Local development setup (docker compose, .env setup)
-4. Fly.io deployment (flyctl commands, secrets setup, postgres attach, first deploy)
+4. Fly.io deployment (flyctl commands, secrets setup, shared Postgres attach to the-forge-db with database {agent_slug}_db, first deploy with --ha=false)
 5. GitHub Actions CI/CD (what the workflow does, the one secret needed: FLY_API_TOKEN)
 6. Verifying deployment (health check URLs, expected responses)
 7. Architecture overview (which service does what)

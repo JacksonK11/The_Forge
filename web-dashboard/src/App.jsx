@@ -16,6 +16,7 @@ const History     = lazy(() => import("./pages/History.jsx"));
 const Intelligence = lazy(() => import("./pages/Intelligence.jsx"));
 const Settings    = lazy(() => import("./pages/Settings.jsx"));
 const RunStatus   = lazy(() => import("./pages/RunStatus.jsx"));
+const ChatTab     = lazy(() => import("./tabs/ChatTab.jsx"));
 
 // ── Loading spinner ───────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ const NAV_TABS = [
   { path: "/queue",       label: "Queue",       badge: "amber" },
   { path: "/active",      label: "Active",      badge: "purple" },
   { path: "/history",     label: "History",     badge: null },
+  { path: "/chat",        label: "Chat",        badge: null },
   { path: "/intelligence",label: "Intelligence",badge: null },
 ];
 
@@ -62,7 +64,7 @@ const MOBILE_TABS = [
   { path: "/build",   label: "Build",  icon: "🔨" },
   { path: "/queue",   label: "Queue",  icon: "⏳", badge: "amber" },
   { path: "/active",  label: "Active", icon: "🔥", badge: "purple" },
-  { path: "/history", label: "Hist",   icon: "📋" },
+  { path: "/chat",    label: "Chat",   icon: "💬" },
 ];
 
 function ForgeNav() {
@@ -81,7 +83,7 @@ function ForgeNav() {
         <div className="logo-dot" />
         <span>THE FORGE</span>
         <span style={{ fontFamily: "var(--fm)", fontSize: 9, color: "var(--p2)", background: "var(--p-d)", border: "1px solid var(--p-g)", borderRadius: 4, padding: "2px 7px", marginLeft: 8, letterSpacing: "0.06em" }}>
-          V5
+          V6
         </span>
       </NavLink>
 
@@ -170,6 +172,7 @@ function AppLayout() {
               <Route path="/queue"        element={<Queue />} />
               <Route path="/active"       element={<Active />} />
               <Route path="/history"      element={<History />} />
+              <Route path="/chat"         element={<ChatTab />} />
               <Route path="/intelligence" element={<Intelligence />} />
               <Route path="/settings"     element={<Settings />} />
               <Route path="/runs/:runId"  element={<RunStatus />} />
