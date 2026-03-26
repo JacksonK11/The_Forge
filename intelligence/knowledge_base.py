@@ -92,6 +92,47 @@ async def store_file_pattern(
     )
 
 
+async def store_build_failure(
+    run_id: str,
+    stage: str,
+    error: str,
+    agent_name: str = "",
+) -> None:
+    """
+    Store a build pipeline failure as a deployment_failure KB record.
+    Called from pipeline._run_stage() when any stage fails.
+    These accumulate as error-fix pairs that the intelligence layer uses
+    to avoid repeating the same mistakes.
+    """
+    try:
+        from app.api.services.error_translator import translate_error
+        translated = translate_error(error)
+        fix = translated.get("fix", "Check logs for details.")
+    except Exception:
+        fix = "Check logs for details."
+
+    content = (
+        f"Build failure in stage '{stage}'"
+        + (f" for agent '{agent_name}'" if agent_name else "")
+        + f". Error: {error[:300]}. Suggested fix: {fix}."
+    )
+    try:
+        await store_record(
+            record_type="deployment_failure",
+            content=content,
+            outcome="failure",
+            run_id=run_id,
+            metadata={
+                "stage": stage,
+                "error": error[:500],
+                "fix": fix,
+                "agent_name": agent_name,
+            },
+        )
+    except Exception as exc:
+        logger.warning(f"[{run_id}] store_build_failure failed (non-blocking): {exc}")
+
+
 async def store_deployment_note(
     note_type: str,
     description: str,

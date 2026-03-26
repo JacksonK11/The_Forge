@@ -308,20 +308,25 @@ async def _detect_and_requeue_orphans(
             stale_cutoff = now - timedelta(minutes=STALE_TIMEOUT_MINUTES)
 
             # ── Stale timeout: 0 files and stuck > STALE_TIMEOUT_MINUTES ────
+            # Give at least one retry before failing — the stall may be a
+            # transient Anthropic rate limit or a cold-start worker delay.
             if current_count == 0 and run.updated_at < stale_cutoff:
-                fail_msg = (
-                    f"Build timed out — stuck in '{run.status}' for "
-                    f"{STALE_TIMEOUT_MINUTES}+ minutes with no output"
-                )
-                logger.warning(f"[{run_id}] {fail_msg}")
-                async with get_session() as session:
-                    await session.execute(
-                        update(ForgeRun)
-                        .where(ForgeRun.run_id == run_id)
-                        .values(status=RunStatus.FAILED.value, error_message=fail_msg)
+                if run.retry_count >= MAX_BUILD_RETRIES:
+                    fail_msg = (
+                        f"Build timed out — stuck in '{run.status}' for "
+                        f"{STALE_TIMEOUT_MINUTES}+ minutes with no output after "
+                        f"{MAX_BUILD_RETRIES} retries"
                     )
-                last_file_counts.pop(run_id, None)
-                continue
+                    logger.warning(f"[{run_id}] {fail_msg}")
+                    async with get_session() as session:
+                        await session.execute(
+                            update(ForgeRun)
+                            .where(ForgeRun.run_id == run_id)
+                            .values(status=RunStatus.FAILED.value, error_message=fail_msg)
+                        )
+                    last_file_counts.pop(run_id, None)
+                    continue
+                # Still has retries left — fall through to the re-queue logic below
 
             # ── Max retry circuit breaker ────────────────────────────────────
             if run.retry_count >= MAX_BUILD_RETRIES:

@@ -425,6 +425,17 @@ async def _run_stage(
         except Exception:
             pass
 
+        try:
+            from intelligence.knowledge_base import store_build_failure
+            await store_build_failure(
+                run_id=run_id,
+                stage=stage_name,
+                error=str(exc),
+                agent_name=state.title,
+            )
+        except Exception:
+            pass
+
         return state
 
 

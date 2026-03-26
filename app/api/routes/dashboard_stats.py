@@ -460,16 +460,17 @@ async def get_forge_config(request: Request) -> dict:
     Returns which environment variables are configured (True/False, never values).
     Also returns current model config and basic scheduler status.
     """
-    env_vars_to_check = [
+    required_vars = [
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GITHUB_TOKEN",
         "FLY_API_TOKEN",
         "TELEGRAM_BOT_TOKEN",
-        "SENTRY_DSN",
     ]
+    optional_vars = ["SENTRY_DSN"]
 
-    env_status = {var: bool(os.environ.get(var, "").strip()) for var in env_vars_to_check}
+    env_status = {var: bool(os.environ.get(var, "").strip()) for var in required_vars + optional_vars}
+    env_status["_optional"] = optional_vars  # type: ignore[assignment]
 
     model_config = {
         "reasoning_model": settings.claude_opus_model,
@@ -518,6 +519,8 @@ async def get_run_report(
     Surfaces health_report, sandbox_results, coherence_results, test_results,
     and blueprint_validation for the Results tab.
     """
+    import json as _json
+
     async for session in get_db():
         result = await session.execute(
             select(ForgeRun).where(ForgeRun.run_id == run_id)
@@ -526,24 +529,43 @@ async def get_run_report(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
 
-        metadata: dict = {}
-        if run.metadata_json and isinstance(run.metadata_json, dict):
-            metadata = run.metadata_json
+        try:
+            metadata: dict = {}
+            if run.metadata_json:
+                if isinstance(run.metadata_json, dict):
+                    metadata = run.metadata_json
+                elif isinstance(run.metadata_json, str):
+                    metadata = _json.loads(run.metadata_json)
 
-        spec: dict = {}
-        if run.spec_json and isinstance(run.spec_json, dict):
-            spec = run.spec_json
+            spec: dict = {}
+            if run.spec_json:
+                if isinstance(run.spec_json, dict):
+                    spec = run.spec_json
+                elif isinstance(run.spec_json, str):
+                    spec = _json.loads(run.spec_json)
 
-        logger.debug(f"[run-report] run_id={run_id} metadata_keys={list(metadata.keys())}")
+            logger.debug(f"[run-report] run_id={run_id} metadata_keys={list(metadata.keys())}")
 
-        return {
-            "run_id": run_id,
-            "title": run.title,
-            "status": run.status,
-            "health_report": metadata.get("health_report"),
-            "sandbox_results": metadata.get("sandbox_results"),
-            "coherence_results": metadata.get("coherence_results"),
-            "test_results": metadata.get("test_results"),
-            "blueprint_validation": metadata.get("blueprint_validation")
-            or spec.get("blueprint_validation"),
-        }
+            return {
+                "run_id": run_id,
+                "title": run.title,
+                "status": run.status,
+                "health_report": metadata.get("health_report"),
+                "sandbox_results": metadata.get("sandbox_results"),
+                "coherence_results": metadata.get("coherence_results"),
+                "test_results": metadata.get("test_results"),
+                "blueprint_validation": metadata.get("blueprint_validation")
+                or spec.get("blueprint_validation"),
+            }
+        except Exception as exc:
+            logger.error(f"[run-report] Failed to build report for {run_id}: {exc}")
+            return {
+                "run_id": run_id,
+                "title": run.title,
+                "status": run.status,
+                "health_report": None,
+                "sandbox_results": None,
+                "coherence_results": None,
+                "test_results": None,
+                "blueprint_validation": None,
+            }

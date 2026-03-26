@@ -19,6 +19,7 @@ Or import and start within the worker:
 
 import asyncio
 import sys
+from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -27,6 +28,24 @@ from loguru import logger
 
 from config.settings import settings
 from memory.database import close_db, init_db
+
+# Module-level scheduler instance — set when start_scheduler() is called
+_scheduler_instance: Optional[AsyncIOScheduler] = None
+
+
+def get_scheduler_instance() -> Optional[AsyncIOScheduler]:
+    """Return the running scheduler instance, or None if not started yet."""
+    return _scheduler_instance
+
+
+def _write_scheduler_heartbeat() -> None:
+    """Write a 5-minute TTL heartbeat key to Redis so the API health check can detect scheduler."""
+    try:
+        from redis import Redis
+        r = Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+        r.setex("forge:scheduler:heartbeat", 300, "running")
+    except Exception as exc:
+        logger.debug(f"Scheduler heartbeat write failed (non-blocking): {exc}")
 
 
 def start_scheduler() -> AsyncIOScheduler:
@@ -107,6 +126,8 @@ def start_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.start()
+    _scheduler_instance = scheduler
+    _write_scheduler_heartbeat()
     logger.info(
         f"Scheduler started with {len(scheduler.get_jobs())} jobs: "
         + ", ".join(job.name for job in scheduler.get_jobs())
@@ -261,6 +282,8 @@ async def poll_agent_health() -> None:
     All errors are non-fatal and logged.
     """
     logger.info("Scheduled job: poll_agent_health")
+    # Refresh the Redis heartbeat so the API health check knows the scheduler is running
+    _write_scheduler_heartbeat()
     try:
         from datetime import datetime, timezone
 

@@ -237,8 +237,14 @@ async def get_detailed_health() -> dict:
         logger.warning(f"health/detailed: redis check failed: {exc}")
 
     # ── Scheduler ────────────────────────────────────────────────────────────
+    # The scheduler runs in the worker process (different machine).
+    # Detect it via a Redis heartbeat key refreshed every 60s by the worker.
     scheduler_info: dict = {"running": False, "next_jobs": []}
     try:
+        heartbeat = _redis.get("forge:scheduler:heartbeat")
+        if heartbeat:
+            scheduler_info["running"] = True
+        # Also attempt direct instance access (works if API + worker share a process in dev)
         from monitoring.scheduler import get_scheduler_instance
         sched = get_scheduler_instance()
         if sched is not None and sched.running:
@@ -249,12 +255,7 @@ async def get_detailed_health() -> dict:
                 for j in jobs[:5]
             ]
     except Exception:
-        # Scheduler module may not expose get_scheduler_instance — fall back silently
-        try:
-            from monitoring import scheduler as _sched_mod
-            scheduler_info["running"] = getattr(_sched_mod, "_scheduler_running", False)
-        except Exception:
-            pass
+        pass
 
     return {
         "api": api_info,
