@@ -231,7 +231,7 @@ KNOWLEDGE BASE (8 domains, continuously updated):
 FLY.IO INFRASTRUCTURE:
 - the-forge-api: shared-cpu-4x, 2GB, min_machines_running=1
 - the-forge-worker: shared-cpu-4x, 4GB (runs APScheduler internally — no separate scheduler)
-- the-forge-dashboard-v7: shared-cpu-1x, 512MB
+- the-forge-dashboard-v8: shared-cpu-1x, 512MB
 - the-forge-db: Fly.io managed Postgres (SHARED across all agents — each agent gets own database)
 - the-forge-redis: Fly.io managed Redis
 

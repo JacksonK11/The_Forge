@@ -3,7 +3,7 @@
 Blueprint document → complete deployable codebase in 15–25 minutes. AI-powered, production-ready, every time.
 
 **Owner:** Jackson Khoury · Sydney, Australia
-**Dashboard:** https://the-forge-dashboard-v7.fly.dev
+**Dashboard:** https://the-forge-dashboard-v8.fly.dev
 **API:** https://the-forge-api.fly.dev
 
 ---
@@ -49,7 +49,7 @@ Every generated agent includes: 7-file intelligence layer, 5-file knowledge engi
 |---------|-----|---------|---------|
 | API | `the-forge-api` | shared-cpu-4x, 2GB | ~A$37 |
 | Worker | `the-forge-worker` | shared-cpu-4x, 4GB | ~A$73 |
-| Dashboard | `the-forge-dashboard-v7` | shared-cpu-1x, 512MB | ~A$9 |
+| Dashboard | `the-forge-dashboard-v8` | shared-cpu-1x, 512MB | ~A$9 |
 | Database | `the-forge-db` (shared Postgres) | managed | ~A$63 ÷ agents |
 | Redis | `the-forge-redis` | managed, 256MB | ~A$30 |
 

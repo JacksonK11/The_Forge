@@ -86,7 +86,7 @@ function ForgeNav() {
         <div className="logo-dot" />
         <span>THE FORGE</span>
         <span style={{ fontFamily: "var(--fm)", fontSize: 9, color: "var(--p2)", background: "var(--p-d)", border: "1px solid var(--p-g)", borderRadius: 4, padding: "2px 7px", marginLeft: 8, letterSpacing: "0.06em" }}>
-          V6
+          V8
         </span>
       </NavLink>
 
