@@ -60,11 +60,14 @@ const NAV_TABS = [
 ];
 
 const MOBILE_TABS = [
-  { path: "/",        label: "CMD",    icon: "⚡" },
-  { path: "/build",   label: "Build",  icon: "🔨" },
-  { path: "/queue",   label: "Queue",  icon: "⏳", badge: "amber" },
-  { path: "/active",  label: "Active", icon: "🔥", badge: "purple" },
-  { path: "/chat",    label: "Chat",   icon: "💬" },
+  { path: "/",             label: "CMD",      icon: "⚡" },
+  { path: "/build",        label: "Build",    icon: "🔨" },
+  { path: "/upgrade",      label: "Upgrade",  icon: "⬆" },
+  { path: "/queue",        label: "Queue",    icon: "⏳", badge: "amber" },
+  { path: "/active",       label: "Active",   icon: "🔥", badge: "purple" },
+  { path: "/history",      label: "History",  icon: "📋" },
+  { path: "/chat",         label: "Chat",     icon: "💬" },
+  { path: "/intelligence", label: "Intel",    icon: "🧠" },
 ];
 
 function ForgeNav() {
