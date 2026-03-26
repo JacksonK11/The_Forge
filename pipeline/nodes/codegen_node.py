@@ -366,9 +366,10 @@ async def codegen_node(state: PipelineState) -> PipelineState:
         logger.warning(f"[{state.run_id}] Test generation failed (non-blocking): {exc}")
 
     # ── Post-build health report ──────────────────────────────────────────────
+    health_report_str: str = ""
     try:
-        health_report = await doctor.post_build_report(state.run_id, file_reports)
-        logger.info(f"[{state.run_id}] {health_report}")
+        health_report_str = await doctor.post_build_report(state.run_id, file_reports)
+        logger.info(f"[{state.run_id}] {health_report_str}")
     except Exception as report_exc:
         logger.warning(
             f"[{state.run_id}] Post-build report failed (non-blocking): {report_exc}"
@@ -452,6 +453,53 @@ async def codegen_node(state: PipelineState) -> PipelineState:
             redis_conn.delete(f"{_CHECKPOINT_PREFIX}{state.run_id}")
     except Exception:
         pass
+
+    # ── Persist quality gate results to metadata_json (surfaces in /report) ───
+    # health_report, coherence_results, sandbox_results, test_results were all
+    # computed above but never written to the DB — this is the fix.
+    try:
+        from sqlalchemy import select, update as _update
+        healed_count = sum(1 for r in file_reports if r.get("healed"))
+        failed_count = sum(
+            1 for r in file_reports
+            if not r.get("healed") and r.get("attempts", 1) > 1
+        )
+        health_report_dict = {
+            "summary": health_report_str,
+            "total_files": len(file_reports),
+            "clean": len(file_reports) - healed_count - failed_count,
+            "healed": healed_count,
+            "failed": failed_count,
+        }
+        async with get_session() as _session:
+            _row = await _session.execute(
+                select(ForgeRun.metadata_json).where(ForgeRun.run_id == state.run_id)
+            )
+            existing_meta = _row.scalar_one_or_none() or {}
+            if not isinstance(existing_meta, dict):
+                existing_meta = {}
+            existing_meta.update({
+                "health_report": health_report_dict,
+                "coherence_results": coherence_result,
+                "sandbox_results": sandbox_result,
+                "test_results": test_results,
+                "blueprint_validation": state.blueprint_validation or None,
+            })
+            await _session.execute(
+                _update(ForgeRun)
+                .where(ForgeRun.run_id == state.run_id)
+                .values(metadata_json=existing_meta)
+            )
+        logger.info(
+            f"[{state.run_id}] Quality gate results persisted to metadata_json "
+            f"(coherence={'PASS' if coherence_result.get('passed') else 'FAIL'}, "
+            f"sandbox={'PASS' if sandbox_result.get('passed') else 'FAIL'}, "
+            f"tests={test_results.get('passed', 0)}/{test_results.get('total', 0)})"
+        )
+    except Exception as _meta_exc:
+        logger.warning(
+            f"[{state.run_id}] metadata_json quality gate persist failed (non-blocking): {_meta_exc}"
+        )
 
     logger.info(
         f"[{state.run_id}] Code generation complete: "
