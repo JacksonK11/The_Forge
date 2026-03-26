@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getRun, getRunFiles, approveRun, getRunPackageBlob, getDeployStatus, triggerDownload, BASE_URL } from "../api.js";
+import { getRun, getRunFiles, approveRun, getRunPackageBlob, getDeployStatus, triggerDownload, getRunReport, BASE_URL } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 
 const STATUS_CONFIG = {
@@ -10,6 +10,7 @@ const STATUS_CONFIG = {
   confirming:  { label: "Awaiting Approval",   tag: "tag-amber",  icon: "✋" },
   architecting:{ label: "Mapping Architecture",tag: "tag-violet", icon: "🗺" },
   generating:  { label: "Generating Code",     tag: "tag-cyan",   icon: "⚡" },
+  build_qa:    { label: "QA & Auto-Fix",       tag: "tag-violet", icon: "🎯" },
   packaging:   { label: "Packaging",           tag: "tag-cyan",   icon: "📦" },
   complete:    { label: "Complete",            tag: "tag-green",  icon: "✅" },
   failed:      { label: "Failed",              tag: "tag-red",    icon: "❌" },
@@ -30,12 +31,111 @@ const LAYER_NAMES = {
 
 const ACTIVE_STATUSES = new Set(["queued", "validating", "parsing", "architecting", "generating", "packaging", "planning", "executing"]);
 
+function BuildQAPanel({ qa }) {
+  const score = qa.total_score ?? 0;
+  const passed = qa.passed;
+  const scoreColor = score >= 95 ? "var(--green)" : score >= 85 ? "var(--amber)" : "var(--red)";
+  const band = score >= 95 ? "PASS" : score >= 85 ? "GOOD" : score >= 70 ? "WARNING" : "POOR";
+  const bandTag = score >= 95 ? "tag-green" : score >= 85 ? "tag-amber" : "tag-red";
+  const categories = qa.categories ?? {};
+  const issues = qa.issues ?? [];
+  const critical = issues.filter((i) => i.severity === "critical");
+  const warnings = issues.filter((i) => i.severity === "warning");
+
+  const cats = [
+    { key: "api",            label: "API Completeness",    max: 25 },
+    { key: "wiring",         label: "Cross-System Wiring", max: 25 },
+    { key: "intelligence",   label: "Intelligence Layer",  max: 25 },
+    { key: "infrastructure", label: "Infrastructure",      max: 15 },
+    { key: "code_quality",   label: "Code Quality",        max: 10 },
+  ];
+
+  return (
+    <div className="ddd-card mb24" style={{ borderColor: passed ? "var(--green)" : score >= 85 ? "var(--amber)" : "var(--red)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div className="card-title">Build QA Score</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {qa.score_history?.length > 1 && (
+            <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+              {qa.score_history.join(" → ")}
+            </span>
+          )}
+          <span className={`ddd-tag ${bandTag}`}>{band}</span>
+        </div>
+      </div>
+
+      {/* Big score */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 20 }}>
+        <span style={{ fontFamily: "var(--fd)", fontSize: 64, lineHeight: 1, color: scoreColor }}>{score}</span>
+        <span style={{ fontFamily: "var(--fd)", fontSize: 28, color: "var(--t3)", paddingBottom: 4 }}>/100</span>
+        <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", paddingBottom: 8, marginLeft: 4 }}>
+          {qa.iteration > 1 ? `after ${qa.iteration} QA iteration${qa.iteration !== 1 ? "s" : ""}` : ""}
+        </span>
+      </div>
+
+      {/* Category bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        {cats.map(({ key, label, max }) => {
+          const val = categories[key]?.score ?? 0;
+          const pct = Math.round((val / max) * 100);
+          const barColor = val === max ? "var(--green)" : val >= max * 0.8 ? "var(--amber)" : "var(--red)";
+          return (
+            <div key={key}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--fm)", fontSize: 10, color: "var(--t2)", marginBottom: 4 }}>
+                <span>{label}</span>
+                <span style={{ color: barColor, fontWeight: 700 }}>{val}/{max}</span>
+              </div>
+              <div className="ddd-prog">
+                <div className="ddd-prog-fill" style={{ width: `${pct}%`, background: barColor, transition: "width 0.4s ease" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Issues */}
+      {critical.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--red)", letterSpacing: "0.08em", marginBottom: 6 }}>
+            {critical.length} CRITICAL ISSUE{critical.length !== 1 ? "S" : ""} FOUND & FIXED
+          </div>
+          {critical.slice(0, 5).map((issue, i) => (
+            <div key={i} style={{ padding: "6px 10px", background: "var(--bg4)", border: "1px solid var(--line2)", borderRadius: 4, marginBottom: 4 }}>
+              <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t2)" }}>
+                <span style={{ color: "var(--red)", marginRight: 6 }}>●</span>
+                {issue.file && <span style={{ color: "var(--p2)", marginRight: 6 }}>{issue.file}</span>}
+                {issue.description}
+              </div>
+            </div>
+          ))}
+          {critical.length > 5 && (
+            <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", paddingLeft: 10 }}>
+              +{critical.length - 5} more fixed
+            </div>
+          )}
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div style={{ marginTop: 8, fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+          {warnings.length} warning{warnings.length !== 1 ? "s" : ""} noted
+        </div>
+      )}
+      {critical.length === 0 && warnings.length === 0 && (
+        <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--green)" }}>
+          ✓ No issues found — build is clean across all categories
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RunStatus() {
   const { runId } = useParams();
   const { addToast } = useToast();
   const [run, setRun] = useState(null);
   const [files, setFiles] = useState([]);
   const [deployStatus, setDeployStatus] = useState(null);
+  const [runReport, setRunReport] = useState(null);
   const [approving, setApproving] = useState(false);
   const [expandedLayer, setExpandedLayer] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +153,10 @@ export default function RunStatus() {
         try {
           const ds = await getDeployStatus(runId);
           setDeployStatus(ds);
+        } catch { /* non-critical */ }
+        try {
+          const report = await getRunReport(runId);
+          setRunReport(report);
         } catch { /* non-critical */ }
       }
     } catch (err) {
@@ -326,6 +430,11 @@ export default function RunStatus() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Build QA Score ── */}
+      {runReport?.build_qa && (
+        <BuildQAPanel qa={runReport.build_qa} />
       )}
 
       {/* ── File tree ── */}

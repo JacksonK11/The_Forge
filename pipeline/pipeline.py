@@ -12,6 +12,8 @@ Pipeline stages:
   3. Confirm     — pause and wait for user approval via API
   4. Architecture — map spec to build manifest with dependency order
   5. Generate    — layer-by-layer code generation (layers 1-7)
+  5b. Recovery   — rebuild generation_failed files (second pass)
+  5c. Build QA   — score → fix → re-score loop until 95+/100 before packaging
   6. Package     — assemble ZIP with README, FLY_SECRETS, connection_test
   7. GitHub push — optional push to GitHub
   8. Deploy verify — optional deploy health check + auto-fix
@@ -78,6 +80,9 @@ class PipelineState:
     repo_name: Optional[str] = None
     push_to_github: bool = False
     github_repo_url: Optional[str] = None
+
+    # Build QA result (set by build_qa_node after scoring loop)
+    qa_result: Optional[object] = None
 
     # Timing
     started_at: float = field(default_factory=time.time)
@@ -172,6 +177,13 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
             state = await recovery_node(state)
         except Exception as _recovery_exc:
             logger.error(f"Recovery node raised unexpectedly (non-blocking): {_recovery_exc}")
+
+    # ── Stage 4c: Build QA loop — score → fix → re-score until 95+/100 ───────
+    try:
+        from pipeline.nodes.build_qa_node import build_qa_node
+        state = await build_qa_node(state)
+    except Exception as _qa_exc:
+        logger.error(f"[{run_id}] Build QA node raised unexpectedly (non-blocking): {_qa_exc}")
 
     # ── Stage 5: Package ─────────────────────────────────────────────────────
     state = await _run_stage(run_id, "packaging", package_node, state)

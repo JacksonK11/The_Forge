@@ -556,6 +556,7 @@ async def get_run_report(
                 "test_results": metadata.get("test_results"),
                 "blueprint_validation": metadata.get("blueprint_validation")
                 or spec.get("blueprint_validation"),
+                "build_qa": metadata.get("build_qa"),
             }
         except Exception as exc:
             logger.error(f"[run-report] Failed to build report for {run_id}: {exc}")
@@ -568,4 +569,5 @@ async def get_run_report(
                 "coherence_results": None,
                 "test_results": None,
                 "blueprint_validation": None,
+                "build_qa": None,
             }
