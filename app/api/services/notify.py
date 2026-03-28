@@ -297,5 +297,71 @@ async def notify_spec_ready(
         if cost_warning:
             text += f"⚠️ <b>High cost build</b> — confirm before approving\n"
 
-    text += f"\n<a href='https://the-forge-dashboard.fly.dev/runs/{run_id}'>Review & Approve →</a>"
+    text += f"\n<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>Review & Approve →</a>"
+    await _send(text)
+
+
+async def notify_build_cost_estimate(
+    run_id: str,
+    title: str,
+    file_count: int,
+    estimated_tokens: int,
+    estimated_cost_aud: float,
+) -> None:
+    """
+    Send a pre-build cost estimate to Telegram just before code generation begins.
+    Gives visibility into expected spend before the build runs.
+    """
+    text = (
+        f"💰 <b>The Forge — Build Cost Estimate</b>\n\n"
+        f"<b>{title}</b>\n"
+        f"Run ID: <code>{run_id}</code>\n\n"
+        f"Files to generate: <b>{file_count}</b>\n"
+        f"Estimated tokens: <b>{estimated_tokens:,}</b>\n"
+        f"Estimated cost: <b>A${estimated_cost_aud:.2f}</b>\n"
+        f"Hard cap: <b>A$30</b> (4M tokens — auto-kills if reached)\n\n"
+        f"Code generation is starting now.\n"
+        f"<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>Track Build →</a>"
+    )
+    await _send(text)
+
+
+async def notify_cost_milestone(
+    run_id: str,
+    title: str,
+    cost_aud: float,
+    milestone_aud: int,
+    total_tokens: int,
+    files_complete: int,
+    file_count: int,
+) -> None:
+    """
+    Alert when a build crosses a cost milestone: A$10, A$15, A$20, or A$30.
+    Only fires once per milestone per build.
+    """
+    if milestone_aud >= 30:
+        icon = "🚨"
+        note = "Approaching hard cap — build will auto-stop if A$30 is exceeded."
+    elif milestone_aud >= 20:
+        icon = "🔴"
+        note = "Large build in progress — monitoring closely."
+    elif milestone_aud >= 15:
+        icon = "🟡"
+        note = "Build progressing normally."
+    else:
+        icon = "💸"
+        note = "Build underway."
+
+    pct_done = int((files_complete / file_count) * 100) if file_count else 0
+
+    text = (
+        f"{icon} <b>The Forge — Cost Milestone: A${milestone_aud}</b>\n\n"
+        f"<b>{title}</b>\n"
+        f"Run ID: <code>{run_id}</code>\n\n"
+        f"Current cost: <b>A${cost_aud:.2f}</b>\n"
+        f"Tokens used: <b>{total_tokens:,}</b>\n"
+        f"Progress: <b>{files_complete}/{file_count} files ({pct_done}%)</b>\n\n"
+        f"{note}\n"
+        f"<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>View Build →</a>"
+    )
     await _send(text)

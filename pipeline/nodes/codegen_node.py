@@ -9,10 +9,14 @@ Files failing evaluation are regenerated up to 3 times.
 Progress is reported to DB after every file.
 
 Cost protection:
-  TOKEN_HARD_CAP: if cumulative tokens for the run exceeds 500,000 (≈A$15 at
+  TOKEN_HARD_CAP: if cumulative tokens for the run exceeds 4,000,000 (≈A$30 at
   Sonnet rates), the build is killed, the run is marked cost_limit_exceeded,
   and a Telegram alert is sent. This is a hard kill switch — it fires before
   every file and is checked every COST_CHECK_INTERVAL files.
+
+  Cost milestones: Telegram notifications are sent at A$10, A$15, A$20, and
+  A$30 as the build progresses. A pre-build estimate is also sent before
+  generation begins.
 
 Graceful file failure (Safeguard 2):
   If generate_file_for_layer returns None, a placeholder file is saved to DB
@@ -46,8 +50,14 @@ from pipeline.pipeline import PipelineState
 from pipeline.services.build_doctor import BuildDoctor
 from pipeline.services.dependency_manifest import DependencyManifest
 
-TOKEN_HARD_CAP = 500_000       # Hard kill at ≈A$15 (Sonnet) / ≈A$75 (Opus)
+TOKEN_HARD_CAP = 4_000_000     # Hard kill at ≈A$30 (Sonnet) — covers 200+ file builds
 COST_CHECK_INTERVAL = 5        # Query DB every N files (reduces DB load)
+
+# ── Cost milestone thresholds (AUD) — Telegram alert sent when each is crossed ─
+COST_MILESTONES_AUD = [10, 15, 20, 30]
+
+# ── Average tokens per file (Sonnet codegen: ~10K input + 1.5K output) ────────
+_AVG_TOKENS_PER_FILE = 11_500
 
 # ── Gap 5 checkpoint constants ────────────────────────────────────────────────
 CHECKPOINT_INTERVAL = 5                  # Save to Redis every N files
@@ -59,6 +69,15 @@ _LARGE_FILE_LINE_THRESHOLD = 800        # Files ≥ this many estimated lines ge
 _COMPLEXITY_PREFIX = "forge:complexity:"
 _COMPLEXITY_MAX_ENTRIES = 10            # Ring buffer size per file basename
 _NONDETERMINISM_THRESHOLD = 0.20        # >20% below average → re-evaluate
+
+def _tokens_to_aud(tokens: int) -> float:
+    """
+    Estimate AUD cost from a token count using Sonnet 4.6 blended rates.
+    Assumes 85% input ($3/M USD) / 15% output ($15/M USD), converted at 1.55 AUD/USD.
+    """
+    usd = (tokens / 1_000_000) * (0.85 * 3.0 + 0.15 * 15.0)  # $4.80/M blended
+    return usd * 1.55
+
 
 _PLACEHOLDER_TEMPLATE = """\
 # ══════════════════════════════════════════════════════════════════
@@ -151,6 +170,24 @@ async def codegen_node(state: PipelineState) -> PipelineState:
     # Track source files we've already attempted to re-generate (Gap 1 guard)
     cross_ref_regenerated: set[str] = set()
 
+    # Track which AUD cost milestones have already been notified this build
+    cost_milestones_notified: set[int] = set()
+
+    # ── Pre-build cost estimate notification ──────────────────────────────────
+    try:
+        from app.api.services.notify import notify_build_cost_estimate
+        estimated_tokens = total_files * _AVG_TOKENS_PER_FILE
+        estimated_cost_aud = _tokens_to_aud(estimated_tokens)
+        await notify_build_cost_estimate(
+            run_id=state.run_id,
+            title=state.title,
+            file_count=total_files,
+            estimated_tokens=estimated_tokens,
+            estimated_cost_aud=estimated_cost_aud,
+        )
+    except Exception as _notify_exc:
+        logger.debug(f"[{state.run_id}] Pre-build estimate notification failed (non-blocking): {_notify_exc}")
+
     for layer_num in sorted(layers.keys()):
         layer_files = layers[layer_num]
         logger.info(
@@ -170,9 +207,35 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                 logger.debug(f"[{state.run_id}] Checkpoint skip: {file_path}")
                 continue
 
-            # ── Token hard cap check (every COST_CHECK_INTERVAL files) ────────
+            # ── Token / cost check (every COST_CHECK_INTERVAL files) ──────────
             if processed % COST_CHECK_INTERVAL == 0 and processed > 0:
                 total_tokens = await _get_run_total_tokens(state.run_id)
+                current_cost_aud = _tokens_to_aud(total_tokens)
+
+                # ── Cost milestone notifications (A$10 / A$15 / A$20 / A$30) ──
+                for milestone in COST_MILESTONES_AUD:
+                    if current_cost_aud >= milestone and milestone not in cost_milestones_notified:
+                        cost_milestones_notified.add(milestone)
+                        logger.info(
+                            f"[{state.run_id}] Cost milestone reached: "
+                            f"A${milestone} (actual A${current_cost_aud:.2f}, "
+                            f"{total_tokens:,} tokens, {processed}/{total_files} files)"
+                        )
+                        try:
+                            from app.api.services.notify import notify_cost_milestone
+                            await notify_cost_milestone(
+                                run_id=state.run_id,
+                                title=state.title,
+                                cost_aud=current_cost_aud,
+                                milestone_aud=milestone,
+                                total_tokens=total_tokens,
+                                files_complete=processed,
+                                file_count=total_files,
+                            )
+                        except Exception as _m_exc:
+                            logger.debug(f"[{state.run_id}] Milestone notify failed (non-blocking): {_m_exc}")
+
+                # ── Hard cap kill ──────────────────────────────────────────────
                 if total_tokens >= TOKEN_HARD_CAP:
                     logger.critical(
                         f"[{state.run_id}] TOKEN HARD CAP EXCEEDED: "
@@ -182,12 +245,11 @@ async def codegen_node(state: PipelineState) -> PipelineState:
                     await _mark_run_cost_limit_exceeded(state.run_id, total_tokens)
                     try:
                         from app.api.services.notify import notify_cost_limit_exceeded
-                        cost_aud_estimate = (total_tokens / 1_000_000) * 15.0 * 1.58
                         await notify_cost_limit_exceeded(
                             run_id=state.run_id,
                             title=state.title,
                             total_tokens=total_tokens,
-                            total_cost_aud=cost_aud_estimate,
+                            total_cost_aud=current_cost_aud,
                             files_complete=processed,
                             file_count=total_files,
                         )
