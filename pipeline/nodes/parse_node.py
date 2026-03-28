@@ -223,11 +223,17 @@ async def parse_node(state: PipelineState) -> PipelineState:
 
     try:
         from app.api.services.notify import notify_spec_ready
+        _file_count = len(spec.get("file_list", []))
+        # Estimate cost: ~11,500 tokens/file at Sonnet blended rate ($4.80/M USD × 1.55 AUD/USD)
+        _estimated_cost_aud = (_file_count * 11_500 / 1_000_000) * 4.80 * 1.55
+        _cost_warning = _estimated_cost_aud >= 22.0  # XL build — flag for review
         await notify_spec_ready(
             run_id=state.run_id,
             title=state.title,
-            file_count=len(spec.get("file_list", [])),
+            file_count=_file_count,
             service_count=len(spec.get("fly_services", [])),
+            estimated_cost_aud=_estimated_cost_aud,
+            cost_warning=_cost_warning,
         )
     except Exception as exc:
         logger.warning(f"[{state.run_id}] Spec notification failed (non-blocking): {exc}")

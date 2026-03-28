@@ -282,7 +282,7 @@ async def notify_spec_ready(
 ) -> None:
     """
     Notify when spec is parsed and waiting for approval.
-    Includes cost estimate and warning flag if the build is projected to be expensive.
+    Includes cost estimate, bracket classification, and warning if expensive.
     """
     text = (
         f"📋 <b>The Forge — Spec Ready for Approval</b>\n\n"
@@ -293,9 +293,25 @@ async def notify_spec_ready(
     )
 
     if estimated_cost_aud is not None:
-        text += f"Estimated cost: <b>A${estimated_cost_aud:.2f}</b>\n"
+        if estimated_cost_aud < 8:
+            bracket = "🟢 Small"
+            bracket_range = "A$4–8"
+        elif estimated_cost_aud < 15:
+            bracket = "🟡 Medium"
+            bracket_range = "A$8–15"
+        elif estimated_cost_aud < 22:
+            bracket = "🟠 Large"
+            bracket_range = "A$15–22"
+        else:
+            bracket = "🔴 XL"
+            bracket_range = "A$22–30"
+
+        text += (
+            f"Estimated cost: <b>A${estimated_cost_aud:.2f}</b>\n"
+            f"Cost bracket: <b>{bracket}</b> ({bracket_range})\n"
+        )
         if cost_warning:
-            text += f"⚠️ <b>High cost build</b> — confirm before approving\n"
+            text += f"⚠️ <b>High cost build</b> — review file count before approving\n"
 
     text += f"\n<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>Review & Approve →</a>"
     await _send(text)
