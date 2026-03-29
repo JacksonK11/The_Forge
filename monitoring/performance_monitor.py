@@ -64,6 +64,8 @@ async def run_performance_check() -> dict:
     Calculate all 5 KPIs, compare to baselines, alert on degradation.
     Stores results in performance_metrics table.
     Returns dict of metric_name → current_value.
+    NOTE: This fires Telegram alerts immediately. Only call this directly
+    if you want real-time alerts. The scheduler uses run_performance_check_silent().
     """
     logger.info("Performance check starting")
 
@@ -102,6 +104,47 @@ async def run_performance_check() -> dict:
         f"{alerts_fired} degradation alerts fired"
     )
     return metrics
+
+
+async def run_performance_check_silent() -> dict:
+    """
+    Calculate all 5 KPIs and store to DB — no Telegram alerts.
+    Used by the 6-hourly scheduler job. Degradation surfaces in the Sunday summary.
+    Returns dict of metric_name → current_value.
+    """
+    logger.info("Performance check (silent) starting")
+    metrics = await _calculate_kpis()
+    for name, value in metrics.items():
+        await _store_metric(name, value)
+    logger.info(f"Performance check (silent) complete: {len(metrics)} KPIs stored")
+    return metrics
+
+
+async def get_weekly_degradation_summary() -> list[dict]:
+    """
+    Return any KPIs that are currently degraded vs their 7-day baseline.
+    Used by the Sunday weekly summary to surface the week's performance issues.
+    Returns list of dicts: [{metric, current, baseline, pct}]
+    """
+    metrics = await _calculate_kpis()
+    baselines = await _get_baselines()
+    degraded = []
+
+    for name, value in metrics.items():
+        if name in baselines and baselines[name] is not None:
+            baseline = baselines[name]
+            definition = KPI_DEFINITIONS.get(name, {})
+            higher_is_better = definition.get("higher_is_better", True)
+            degradation = _calculate_degradation(value, baseline, higher_is_better)
+            if degradation > DEGRADATION_THRESHOLD:
+                degraded.append({
+                    "metric": name,
+                    "current": value,
+                    "baseline": baseline,
+                    "pct": degradation * 100,
+                })
+
+    return degraded
 
 
 # ── KPI calculations ──────────────────────────────────────────────────────────

@@ -3,11 +3,16 @@ monitoring/scheduler.py
 APScheduler configuration for all scheduled background tasks.
 
 Registered jobs:
-  Every 6 hours:  Performance KPI check
+  Every 6 hours:  Performance KPI data collection (silent — no Telegram)
   Daily at 02:00: Knowledge collection sweep (all 6 domains)
   Daily at 03:00: Knowledge embedding sweep (after collection)
   Sunday 00:00:   Meta-rules extraction from build outcomes
-  Sunday 07:00:   Weekly Telegram summary
+  Sunday 06:00:   Weekly cost check (folded into Sunday report)
+  Sunday 07:00:   Weekly Telegram summary (includes degradation + cost)
+
+All Telegram alerts are consolidated to Sunday only.
+The only real-time Telegram messages are build lifecycle events
+(started, spec ready, cost milestones, complete, failed).
 
 Run as a standalone process:
   python monitoring/scheduler.py
@@ -55,12 +60,13 @@ def start_scheduler() -> AsyncIOScheduler:
     """
     scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # ── Performance monitoring: every 6 hours ─────────────────────────────────
+    # ── Performance KPI data collection: every 6 hours (silent — no Telegram) ──
+    # Alerts are suppressed here and surfaced only in the Sunday weekly summary.
     scheduler.add_job(
-        _run_performance_check,
+        _run_performance_check_silent,
         trigger=IntervalTrigger(hours=6),
         id="performance_check",
-        name="Performance KPI Check",
+        name="Performance KPI Check (silent)",
         replace_existing=True,
         misfire_grace_time=300,
     )
@@ -105,12 +111,13 @@ def start_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=3600,
     )
 
-    # ── Daily cost monitor: 23:00 UTC = 09:00 AEST (Sydney) ──────────────────
+    # ── Weekly cost check: Sunday 06:00 UTC (runs before weekly summary) ─────
+    # Moved from daily to weekly — cost is covered by build-time Telegram alerts.
     scheduler.add_job(
         _run_daily_cost_check,
-        trigger=CronTrigger(hour=23, minute=0),
-        id="daily_cost_check",
-        name="Daily Cost Monitor",
+        trigger=CronTrigger(day_of_week="sun", hour=6, minute=0),
+        id="weekly_cost_check",
+        name="Weekly Cost Check",
         replace_existing=True,
         misfire_grace_time=3600,
     )
@@ -157,13 +164,16 @@ async def _run_daily_cost_check() -> None:
         logger.error(f"Daily cost check job failed: {exc}")
 
 
-async def _run_performance_check() -> None:
-    """Run the 6-hourly performance KPI check."""
-    logger.info("Scheduled job: performance_check")
+async def _run_performance_check_silent() -> None:
+    """
+    Run the 6-hourly performance KPI data collection without sending Telegram alerts.
+    Stores metrics for baseline tracking. Degradation alerts surface on Sunday only.
+    """
+    logger.info("Scheduled job: performance_check (silent)")
     try:
-        from monitoring.performance_monitor import run_performance_check
-        metrics = await run_performance_check()
-        logger.info(f"Performance check complete: {metrics}")
+        from monitoring.performance_monitor import run_performance_check_silent
+        metrics = await run_performance_check_silent()
+        logger.info(f"Performance check complete (silent): {metrics}")
     except Exception as exc:
         logger.error(f"Performance check job failed: {exc}")
 
@@ -264,6 +274,19 @@ async def _send_weekly_summary() -> None:
 
         success_pct = f"{(complete/total*100):.0f}%" if total > 0 else "—"
 
+        # ── Degradation summary ───────────────────────────────────────────────
+        degradation_lines = []
+        try:
+            from monitoring.performance_monitor import get_weekly_degradation_summary
+            degradations = await get_weekly_degradation_summary()
+            for d in degradations:
+                degradation_lines.append(
+                    f"  ⚠️ {d['metric']}: {d['current']:.1f} vs baseline {d['baseline']:.1f} "
+                    f"({d['pct']:.0f}% worse)"
+                )
+        except Exception:
+            pass
+
         text = (
             f"📊 <b>The Forge — Weekly Summary</b>\n\n"
             f"<b>Builds (last 7 days):</b>\n"
@@ -272,11 +295,19 @@ async def _send_weekly_summary() -> None:
             f"  Failed: <b>{failed}</b>\n"
             f"  Success rate: <b>{success_pct}</b>\n\n"
             f"<b>Cost (last 7 days):</b>\n"
-            f"  USD: <b>${week_cost_usd:.2f}</b>\n"
-            f"  AUD: <b>A${week_cost_aud:.2f}</b>\n\n"
+            f"  AUD: <b>A${week_cost_aud:.2f}</b>\n"
+            f"  USD: <b>${week_cost_usd:.2f}</b>\n\n"
             f"<b>Knowledge Base:</b>\n"
             f"  Total chunks: <b>{kb_stats.get('total_chunks', 0):,}</b>\n"
         )
+
+        if degradation_lines:
+            text += f"\n<b>Performance Flags This Week:</b>\n"
+            text += "\n".join(degradation_lines) + "\n"
+        else:
+            text += f"\n✅ <b>No performance degradation this week</b>\n"
+
+        text += f"\n<a href='https://the-forge-dashboard-v8.fly.dev'>Open Dashboard →</a>"
         await _send(text)
     except Exception as exc:
         logger.error(f"Weekly summary job failed: {exc}")
