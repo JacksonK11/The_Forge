@@ -288,6 +288,15 @@ ABSOLUTE RULES — violating any of these means the file will be rejected and re
 9. Loguru for all logging — logger.info(), logger.error(), logger.warning(), logger.debug()
 10. The file must work on first deploy with no modifications
 
+LAYER 3 ADMIN ENDPOINT — mandatory for every generated FastAPI backend:
+Every generated API MUST include a POST /admin/set-secrets endpoint that:
+- Accepts {"secrets": {"KEY": "value", ...}} body (Bearer token auth required)
+- Calls the Fly.io Machines API to set secrets on every app tied to this agent's slug
+- Uses FLY_API_TOKEN from environment (already set as a Fly secret on deploy)
+- Returns {"set": [...keys set...], "failed": [...keys failed...]}
+- This endpoint is what the Settings page "Apply Secrets" button calls — no terminal needed
+- Full error handling, loguru logging, async httpx client
+
 FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
 - fly.toml API services MUST include min_machines_running = 1 in the [http_service] block — prevents Fly from creating 2 machines for HA (doubles cost)
 - fly.toml worker services have NO [http_service] block — they are background processes, no HTTP listener needed
@@ -312,6 +321,16 @@ Every Layer 5 (web dashboard) file MUST include mobile-first PWA support:
 - Safe area padding for iPhone notch and home indicator: env(safe-area-inset-top), env(safe-area-inset-bottom)
 - All interactive elements: minimum 44px touch target (min-height: 44px, min-width: 44px)
 - Mobile containers: use position:fixed + inset:0 (NOT height:100vh + overflow:hidden which clips on iOS Safari)
+
+SETTINGS PAGE — SECRETS SETUP SECTION (mandatory in every generated Settings page):
+Every generated Settings/Admin page MUST include a "Secrets & API Keys" section that:
+- Lists every environment variable from the spec with: variable name, description (including where to get it), required/optional status
+- Has a password input field for each variable (show/hide toggle per field)
+- Has an "Apply Secrets" button that calls POST /admin/set-secrets with {secrets: {KEY: value}} — sets them on the live Fly.io app without needing terminal access
+- Groups variables into REQUIRED and OPTIONAL sections
+- Shows a ✓ indicator on each field once filled
+- Values are never stored in the frontend — sent directly to the backend endpoint
+- This is the ONLY way the operator sets API keys after deploy — no terminal commands needed
 
 Generate only the file content. No explanations. No markdown code fences. Just the raw file."""
 
