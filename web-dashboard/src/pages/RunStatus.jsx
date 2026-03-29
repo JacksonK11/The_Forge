@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getRun, getRunFiles, approveRun, getRunPackageBlob, getDeployStatus, triggerDownload, getRunReport, BASE_URL } from "../api.js";
+import { getRun, getRunFiles, approveRun, getRunPackageBlob, getDeployStatus, triggerDownload, getRunReport, setRunSecrets, BASE_URL } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 
 const STATUS_CONFIG = {
@@ -170,6 +170,129 @@ function BuildQAPanel({ qa, runId, title }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SecretsSetupPanel({ run }) {
+  const envVars = run.spec_json?.environment_variables || [];
+  const required = envVars.filter((v) => v.required !== false);
+  const optional = envVars.filter((v) => v.required === false);
+  const [values, setValues] = useState({});
+  const [show, setShow] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [applied, setApplied] = useState(false);
+  const { addToast } = useToast();
+
+  if (envVars.length === 0) return null;
+
+  function setValue(name, val) {
+    setValues((prev) => ({ ...prev, [name]: val }));
+    if (applied) setApplied(false);
+  }
+
+  function toggleShow(name) {
+    setShow((prev) => ({ ...prev, [name]: !prev[name] }));
+  }
+
+  async function handleApply() {
+    const secrets = Object.fromEntries(
+      Object.entries(values).filter(([, v]) => v && v.trim())
+    );
+    if (Object.keys(secrets).length === 0) {
+      addToast("Enter at least one secret before applying.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      await setRunSecrets(run.run_id, secrets);
+      setApplied(true);
+      addToast(`${Object.keys(secrets).length} secret(s) applied to Fly.io ✓`, "success");
+    } catch (err) {
+      addToast(err.message || "Failed to apply secrets.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filledCount = Object.values(values).filter((v) => v && v.trim()).length;
+  const requiredFilled = required.filter((v) => values[v.name]?.trim()).length;
+
+  function renderVar(v) {
+    const filled = !!(values[v.name]?.trim());
+    return (
+      <div key={v.name} style={{ marginBottom: 14, padding: "12px 14px", background: "var(--bg4)", border: `1px solid ${filled ? "var(--green)" : "var(--line2)"}`, borderRadius: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "var(--fm)", fontSize: 11, color: "var(--t1)", fontWeight: 700 }}>{v.name}</span>
+            {v.required !== false
+              ? <span className="ddd-tag tag-red" style={{ fontSize: 9, padding: "1px 6px" }}>REQUIRED</span>
+              : <span className="ddd-tag tag-gray" style={{ fontSize: 9, padding: "1px 6px" }}>OPTIONAL</span>
+            }
+            {filled && <span style={{ color: "var(--green)", fontSize: 12 }}>✓</span>}
+          </div>
+        </div>
+        {v.description && (
+          <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginBottom: 8, lineHeight: 1.5 }}>{v.description}</div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type={show[v.name] ? "text" : "password"}
+            placeholder={v.example ? `e.g. ${v.example}` : "Enter value..."}
+            value={values[v.name] || ""}
+            onChange={(e) => setValue(v.name, e.target.value)}
+            style={{ flex: 1, background: "var(--bg3)", border: "1px solid var(--line2)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--fm)", fontSize: 11, color: "var(--t1)", outline: "none" }}
+          />
+          <button
+            onClick={() => toggleShow(v.name)}
+            className="ddd-btn btn-ghost btn-sm"
+            style={{ flexShrink: 0, padding: "8px 10px" }}
+            title={show[v.name] ? "Hide" : "Show"}
+          >
+            {show[v.name] ? "🙈" : "👁"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ddd-card mb24" style={{ borderColor: applied ? "var(--green)" : "var(--line)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div className="card-title">🔑 Secrets Setup</div>
+        <span style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)" }}>
+          {requiredFilled}/{required.length} required filled
+        </span>
+      </div>
+      <div style={{ fontFamily: "var(--fm)", fontSize: 11, color: "var(--t2)", marginBottom: 20, lineHeight: 1.6 }}>
+        Enter your API keys below. Click <b>Apply to Fly.io</b> and they are set on your live apps automatically — no terminal needed.
+      </div>
+
+      {required.length > 0 && (
+        <>
+          <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", letterSpacing: "0.08em", marginBottom: 10 }}>REQUIRED ACCOUNTS & KEYS</div>
+          {required.map(renderVar)}
+        </>
+      )}
+
+      {optional.length > 0 && (
+        <>
+          <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", letterSpacing: "0.08em", margin: "16px 0 10px" }}>OPTIONAL</div>
+          {optional.map(renderVar)}
+        </>
+      )}
+
+      <button
+        onClick={handleApply}
+        disabled={saving || filledCount === 0}
+        className={`ddd-btn ${applied ? "btn-green" : "btn-purple"}`}
+        style={{ width: "100%", justifyContent: "center", padding: "12px 16px", marginTop: 8, opacity: filledCount === 0 ? 0.5 : 1 }}
+      >
+        {saving ? "⏳ APPLYING TO FLY.IO..." : applied ? `✓ APPLIED ${filledCount} SECRET${filledCount !== 1 ? "S" : ""}` : `⚡ APPLY ${filledCount > 0 ? filledCount : ""} SECRET${filledCount !== 1 ? "S" : ""} TO FLY.IO`}
+      </button>
+      <div style={{ fontFamily: "var(--fm)", fontSize: 10, color: "var(--t3)", marginTop: 8, textAlign: "center" }}>
+        Values are sent directly to Fly.io and never stored in The Forge dashboard.
+      </div>
     </div>
   );
 }
@@ -476,6 +599,9 @@ export default function RunStatus() {
           )}
         </div>
       )}
+
+      {/* ── Secrets Setup ── */}
+      {run.status === "complete" && <SecretsSetupPanel run={run} />}
 
       {/* ── Build QA Score ── */}
       {runReport?.build_qa && (
