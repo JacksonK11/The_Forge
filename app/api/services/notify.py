@@ -152,7 +152,7 @@ async def notify_build_complete(
     if github_repo_url:
         text += f"\nGitHub: <a href='{github_repo_url}'>{github_repo_url}</a>\n"
 
-    text += f"\n<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>View Build →</a>"
+    text += f"\n<a href='https://the-forge-dashboard-v10.fly.dev/runs/{run_id}'>View Build →</a>"
     await _send(text)
 
     if callback_url:
@@ -313,7 +313,7 @@ async def notify_spec_ready(
         if cost_warning:
             text += f"⚠️ <b>High cost build</b> — review file count before approving\n"
 
-    text += f"\n<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>Review & Approve →</a>"
+    text += f"\n<a href='https://the-forge-dashboard-v10.fly.dev/runs/{run_id}'>Review & Approve →</a>"
     await _send(text)
 
 
@@ -337,7 +337,7 @@ async def notify_build_cost_estimate(
         f"Estimated cost: <b>A${estimated_cost_aud:.2f}</b>\n"
         f"Hard cap: <b>A$30</b> (4M tokens — auto-kills if reached)\n\n"
         f"Code generation is starting now.\n"
-        f"<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>Track Build →</a>"
+        f"<a href='https://the-forge-dashboard-v10.fly.dev/runs/{run_id}'>Track Build →</a>"
     )
     await _send(text)
 
@@ -378,6 +378,6 @@ async def notify_cost_milestone(
         f"Tokens used: <b>{total_tokens:,}</b>\n"
         f"Progress: <b>{files_complete}/{file_count} files ({pct_done}%)</b>\n\n"
         f"{note}\n"
-        f"<a href='https://the-forge-dashboard-v8.fly.dev/runs/{run_id}'>View Build →</a>"
+        f"<a href='https://the-forge-dashboard-v10.fly.dev/runs/{run_id}'>View Build →</a>"
     )
     await _send(text)

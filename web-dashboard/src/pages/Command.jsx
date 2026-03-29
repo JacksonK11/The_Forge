@@ -63,7 +63,7 @@ export default function Command() {
       <div className="ddd-hero">
         <div>
           <div className="hero-eyebrow">⚒ AI Build Engine · Sydney, AUS</div>
-          <div className="hero-title">THE FORGE<br/>DASHBOARD V8</div>
+          <div className="hero-title">THE FORGE<br/>DASHBOARD V10</div>
           <div className="hero-sub">Blueprint document → complete deployable codebase in 15–25 minutes. AI-powered, production-ready, every time.</div>
         </div>
         <div className="hero-stats">
