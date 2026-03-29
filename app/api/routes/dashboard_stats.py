@@ -2,6 +2,7 @@
 app/api/routes/dashboard_stats.py
 Dashboard statistics and utility routes for The Forge UI.
 
+GET /forge/stats                     — summary KPIs for the Command dashboard
 GET /forge/runs/pending              — spec_ready runs awaiting approval
 GET /forge/notifications             — notification counts + recent activity
 GET /forge/search?q={query}          — cross-entity search
@@ -34,6 +35,82 @@ from memory.models import (
 )
 
 router = APIRouter()
+
+
+# ── 0. Forge stats (Command dashboard KPIs) ───────────────────────────────────
+
+
+@router.get("/stats")
+@limiter.limit("60/minute")
+async def get_forge_stats(request: Request) -> dict:
+    """
+    Summary KPIs for the Command dashboard.
+    Returns total_runs, complete, failed, active_builds,
+    total_files_generated, and monthly_cost_aud (current calendar month).
+    """
+    active_statuses = [
+        "parsing",
+        "validating",
+        "confirming",
+        "architecting",
+        "generating",
+        "packaging",
+    ]
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    async for session in get_db():
+        # Total runs
+        total_result = await session.execute(select(func.count(ForgeRun.run_id)))
+        total_runs: int = total_result.scalar_one() or 0
+
+        # Complete
+        complete_result = await session.execute(
+            select(func.count(ForgeRun.run_id)).where(ForgeRun.status == "complete")
+        )
+        complete: int = complete_result.scalar_one() or 0
+
+        # Failed
+        failed_result = await session.execute(
+            select(func.count(ForgeRun.run_id)).where(ForgeRun.status == "failed")
+        )
+        failed: int = failed_result.scalar_one() or 0
+
+        # Active builds (in-pipeline)
+        active_result = await session.execute(
+            select(func.count(ForgeRun.run_id)).where(
+                ForgeRun.status.in_(active_statuses)
+            )
+        )
+        active_builds: int = active_result.scalar_one() or 0
+
+        # Total files generated across all runs
+        files_result = await session.execute(
+            select(func.sum(ForgeRun.files_complete))
+        )
+        total_files_generated: int = int(files_result.scalar_one() or 0)
+
+        # Monthly cost estimate — sum of (files_complete * 0.002) for runs this calendar month
+        monthly_result = await session.execute(
+            select(func.sum(ForgeRun.files_complete * 0.002)).where(
+                ForgeRun.created_at >= month_start
+            )
+        )
+        monthly_cost_aud: float = round(float(monthly_result.scalar_one() or 0), 2)
+
+        logger.debug(
+            f"[forge-stats] total={total_runs} complete={complete} failed={failed} "
+            f"active={active_builds} files={total_files_generated} monthly=A${monthly_cost_aud}"
+        )
+
+        return {
+            "total_runs": total_runs,
+            "complete": complete,
+            "failed": failed,
+            "active_builds": active_builds,
+            "total_files_generated": total_files_generated,
+            "monthly_cost_aud": monthly_cost_aud,
+        }
 
 
 # ── 1. Pending runs (spec_ready) ─────────────────────────────────────────────
