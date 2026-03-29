@@ -32,7 +32,16 @@ export default function Settings() {
     e.preventDefault();
     setSaving(true);
     try {
-      await saveSettings(form);
+      // Backend stores all values as strings — convert booleans and numbers
+      const payload = {
+        push_to_github: String(form.push_to_github),
+        default_region: form.default_region,
+        auto_approve_low_risk: String(form.auto_approve_low_risk),
+        max_parallel_builds: String(form.max_parallel_builds),
+        notification_email: form.notification_email || "",
+        telegram_chat_id: form.telegram_chat_id || "",
+      };
+      await saveSettings(payload);
       addToast("Settings saved.", "success");
     } catch (err) {
       addToast(err.message || "Failed to save settings.", "error");

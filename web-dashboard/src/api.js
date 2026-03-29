@@ -22,7 +22,12 @@ async function request(method, path, body = null, extraHeaders = {}) {
     let errMsg = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      errMsg = data.detail || data.message || errMsg;
+      const detail = data.detail || data.message;
+      if (Array.isArray(detail)) {
+        errMsg = detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ");
+      } else if (detail) {
+        errMsg = detail;
+      }
     } catch {
       // ignore parse error
     }
@@ -96,7 +101,12 @@ export async function submitBuildWithFiles({ title, blueprint_text, repo_name, p
     let errMsg = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      errMsg = data.detail || data.message || errMsg;
+      const detail = data.detail || data.message;
+      if (Array.isArray(detail)) {
+        errMsg = detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ");
+      } else if (detail) {
+        errMsg = detail;
+      }
     } catch {
       // ignore parse error
     }
@@ -159,7 +169,12 @@ export async function submitFile(file) {
     let errMsg = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      errMsg = data.detail || data.message || errMsg;
+      const detail = data.detail || data.message;
+      if (Array.isArray(detail)) {
+        errMsg = detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ");
+      } else if (detail) {
+        errMsg = detail;
+      }
     } catch {
       // ignore parse error
     }
@@ -231,7 +246,12 @@ export async function sendChatMessageStream(messages, memoryNotes, filesContext,
     let errMsg = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      errMsg = data.detail || data.message || errMsg;
+      const detail = data.detail || data.message;
+      if (Array.isArray(detail)) {
+        errMsg = detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ");
+      } else if (detail) {
+        errMsg = detail;
+      }
     } catch { /* ignore parse error */ }
     throw new Error(errMsg);
   }

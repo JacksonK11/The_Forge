@@ -30,7 +30,14 @@ DEFAULTS: dict[str, str] = {
     "telegram_notify_on_complete": "true",
     "telegram_notify_on_failure": "true",
     "telegram_notify_on_stall": "true",
-    "push_to_github_default": "true",
+    # Dashboard settings form keys
+    "push_to_github": "false",
+    "push_to_github_default": "false",
+    "default_region": "syd",
+    "notification_email": "",
+    "telegram_chat_id": "",
+    "auto_approve_low_risk": "false",
+    "max_parallel_builds": "2",
 }
 
 
