@@ -137,12 +137,12 @@ export default function Build() {
                   <div className="drop-zone-text">
                     {files.length > 0 ? `${files.length} file${files.length !== 1 ? "s" : ""} selected` : "Drag & drop or click to select files"}
                   </div>
-                  <div className="drop-zone-hint">.docx, .pdf, .txt, or source code files</div>
+                  <div className="drop-zone-hint">.docx, .pdf, .txt, .html, or source code files</div>
                   <input
                     id="blueprint-file-input"
                     type="file"
                     multiple
-                    accept=".docx,.pdf,.txt,.py,.js,.jsx,.ts,.tsx,.md"
+                    accept=".docx,.pdf,.txt,.html,.py,.js,.jsx,.ts,.tsx,.md"
                     onChange={(e) => setFiles(Array.from(e.target.files))}
                     style={{ display: "none" }}
                   />
