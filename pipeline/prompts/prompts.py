@@ -79,11 +79,23 @@ The generated codebase must follow this stack:
 
 _PARSE_USER_SCHEMA = """Return a JSON object with this exact structure — no prose, no markdown fences, just the JSON:
 
+CRITICAL: file_list is the most important field. It must be complete and exhaustive —
+list every single file that needs to be generated. A typical agent has 40–80 files.
+Generate file_list FIRST before other detail fields so it is never truncated.
+
 {
   "agent_name": "Human-readable name (e.g. 'BuildRight AI Agent')",
   "agent_slug": "kebab-case-slug (e.g. 'buildright-ai-agent')",
   "description": "One paragraph describing what this agent does",
   "fly_region": "syd or lhr",
+  "file_list": [
+    {
+      "path": "path/to/file.py",
+      "layer": 1,
+      "description": "What this file does",
+      "dependencies": ["path/to/dep.py"]
+    }
+  ],
   "fly_services": [
     {
       "name": "agent-slug-api",
@@ -137,14 +149,6 @@ _PARSE_USER_SCHEMA = """Return a JSON object with this exact structure — no pr
       "description": "What this is and where to get it",
       "required": true,
       "example": "example_value"
-    }
-  ],
-  "file_list": [
-    {
-      "path": "path/to/file.py",
-      "layer": 1,
-      "description": "What this file does",
-      "dependencies": ["path/to/dep.py"]
     }
   ]
 }"""
@@ -604,7 +608,7 @@ Write a README.md with these sections:
 1. Project overview (what it does, brief architecture)
 2. Prerequisites (accounts needed, CLI tools)
 3. Local development setup (docker compose, .env setup)
-4. Fly.io deployment (flyctl commands, secrets setup, shared Postgres attach to the-forge-db with database {agent_slug}_db, first deploy with --ha=false)
+4. Fly.io deployment (flyctl commands, secrets setup, shared Postgres attach to the-forge-db with database {{agent_slug}}_db, first deploy with --ha=false)
 5. GitHub Actions CI/CD (what the workflow does, the one secret needed: FLY_API_TOKEN)
 6. Verifying deployment (health check URLs, expected responses)
 7. Architecture overview (which service does what)
