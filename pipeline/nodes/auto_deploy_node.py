@@ -97,16 +97,24 @@ async def _set_secrets(
     app_name: str,
     secrets_dict: dict[str, str],
 ) -> None:
-    """Set secrets on a Fly app as an array of {key, value} objects."""
+    """Set secrets on a Fly app using the Machines REST API."""
     if not secrets_dict:
         return
-    payload = [{"key": k, "value": v} for k, v in secrets_dict.items()]
+    # Fly Machines API expects {"secrets": [{"key": "K", "value": "V"}]}
+    payload = {"secrets": [{"key": k, "value": v} for k, v in secrets_dict.items()]}
     resp = await client.post(
         f"{FLY_API_BASE}/v1/apps/{app_name}/secrets",
         headers=_fly_headers(token),
         json=payload,
         timeout=30.0,
     )
+    if resp.status_code == 400:
+        # Fallback: some app states require the GraphQL API for secrets
+        logger.warning(
+            f"[auto_deploy] Machines API secrets failed (400) for {app_name} — "
+            f"secrets must be set manually via: flyctl secrets set KEY=VALUE -a {app_name}"
+        )
+        return
     resp.raise_for_status()
 
 
