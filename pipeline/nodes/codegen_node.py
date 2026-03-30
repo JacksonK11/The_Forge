@@ -50,14 +50,14 @@ from pipeline.pipeline import PipelineState
 from pipeline.services.build_doctor import BuildDoctor
 from pipeline.services.dependency_manifest import DependencyManifest
 
-TOKEN_HARD_CAP = 4_000_000     # Hard kill at ≈A$30 (Sonnet) — covers 200+ file builds
+TOKEN_HARD_CAP = 13_440_000    # Hard kill at ≈A$100 (Sonnet) — ~13.4M tokens
 COST_CHECK_INTERVAL = 5        # Query DB every N files (reduces DB load)
 
-# ── Cost milestone thresholds (AUD) — Telegram alert sent when each is crossed ─
-COST_MILESTONES_AUD = [10, 15, 20, 30]
+# ── Cost milestone thresholds (AUD) — Telegram alert sent at each exact milestone ─
+COST_MILESTONES_AUD = [10, 20, 30, 40, 50, 60, 70, 80, 85, 90, 95, 100]
 
-# ── Average tokens per file (Sonnet codegen: ~10K input + 1.5K output) ────────
-_AVG_TOKENS_PER_FILE = 11_500
+# ── Average tokens per file (Sonnet codegen: ~35K tokens blended input+output) ──
+_AVG_TOKENS_PER_FILE = 35_000
 
 # ── Gap 5 checkpoint constants ────────────────────────────────────────────────
 CHECKPOINT_INTERVAL = 5                  # Save to Redis every N files

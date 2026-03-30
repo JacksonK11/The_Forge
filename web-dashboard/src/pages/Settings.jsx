@@ -7,7 +7,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    push_to_github: false,
+    push_to_github: true,
     default_region: "syd",
     notification_email: "",
     telegram_chat_id: "",

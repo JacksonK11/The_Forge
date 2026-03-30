@@ -129,6 +129,10 @@ export async function getRunFiles(runId, includeContent = false) {
   return request("GET", `/forge/runs/${runId}/files?include_content=${includeContent}`);
 }
 
+export async function getRunCostEstimate(runId) {
+  return request("GET", `/forge/runs/${runId}/cost-estimate`);
+}
+
 export async function getForgeStats() {
   return request("GET", "/forge/stats");
 }

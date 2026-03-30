@@ -7,6 +7,8 @@ import {
   getTemplates,
   triggerDownload,
   submitBuildWithFiles,
+  getRunCostEstimate,
+  getRunFiles,
 } from "../api.js";
 import FileAttachmentArea from "../components/FileAttachmentArea.jsx";
 
@@ -64,6 +66,14 @@ function StageIcon({ status, stageKey, currentStatus }) {
 
 function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
   const [approving, setApproving] = useState(false);
+  const [costEstimate, setCostEstimate] = useState(null);
+
+  useEffect(() => {
+    if (!runId) return;
+    getRunCostEstimate(runId)
+      .then(setCostEstimate)
+      .catch(() => {});
+  }, [runId]);
 
   async function handleApprove() {
     setApproving(true);
@@ -75,6 +85,9 @@ function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
       setApproving(false);
     }
   }
+
+  const fileCount = costEstimate?.file_count ?? spec.file_list?.length ?? spec.file_count ?? "—";
+  const estimatedCost = costEstimate?.estimated_cost_aud;
 
   return (
     <div className="mt-6 border border-purple-700 rounded-lg bg-purple-950/20 p-4 md:p-5">
@@ -96,7 +109,13 @@ function SpecPanel({ spec, runId, onApprove, onReject, isMobile }) {
         </div>
         <div>
           <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Estimated Files</p>
-          <p className="text-gray-100 font-medium">{spec.file_count ?? "—"}</p>
+          <p className="text-gray-100 font-medium">{fileCount}</p>
+        </div>
+        <div>
+          <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Estimated Cost</p>
+          <p className={`font-medium ${estimatedCost > 10 ? "text-yellow-400" : "text-gray-100"}`}>
+            {estimatedCost != null ? `A$${estimatedCost.toFixed(2)}` : "—"}
+          </p>
         </div>
       </div>
 
@@ -173,8 +192,10 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
   const [templates, setTemplates] = useState([]);
   const [currentRun, setCurrentRun] = useState(null);
   const [runStatus, setRunStatus] = useState(null);
+  const [runFiles, setRunFiles] = useState([]);
   const [error, setError] = useState("");
   const pollRef = useRef(null);
+  const filesPollRef = useRef(null);
   const titleChanged = useRef(false);
 
   useEffect(() => {
@@ -233,8 +254,31 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (filesPollRef.current) clearInterval(filesPollRef.current);
     };
   }, []);
+
+  // Poll per-file status during generating stage
+  useEffect(() => {
+    const runId = runStatus?.run_id || currentRun;
+    const isGenerating = runStatus?.status === "generating";
+    if (isGenerating && runId) {
+      if (!filesPollRef.current) {
+        const fetchFiles = () =>
+          getRunFiles(runId)
+            .then(setRunFiles)
+            .catch(() => {});
+        fetchFiles();
+        filesPollRef.current = setInterval(fetchFiles, 5000);
+      }
+    } else {
+      if (filesPollRef.current) {
+        clearInterval(filesPollRef.current);
+        filesPollRef.current = null;
+      }
+      if (!isGenerating) setRunFiles([]);
+    }
+  }, [runStatus?.status, runStatus?.run_id, currentRun]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -516,7 +560,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
             })}
           </div>
 
-          {/* File generation progress bar */}
+          {/* File generation progress */}
           {status === "generating" && runStatus?.file_count > 0 && (
             <div className="mt-5">
               <div className="flex items-center justify-between text-sm mb-2">
@@ -525,7 +569,7 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
                   {runStatus.files_complete ?? 0} / {runStatus.file_count}
                 </span>
               </div>
-              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-2 bg-gray-800 rounded-full overflow-hidden mb-4">
                 <div
                   className="h-full bg-purple-600 rounded-full transition-all duration-500"
                   style={{
@@ -535,6 +579,47 @@ export default function BuildTab({ onGoToResults, initialBlueprint = "", isMobil
                   }}
                 />
               </div>
+              {runFiles.length > 0 && (
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {runFiles.map((f) => {
+                    const done = f.status === "complete";
+                    const failed = f.status === "generation_failed";
+                    const active = !done && !failed && f.status === "generating";
+                    return (
+                      <div key={f.file_path} className="flex items-center gap-2">
+                        <div className="w-24 shrink-0">
+                          <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                done
+                                  ? "bg-green-500 w-full"
+                                  : failed
+                                  ? "bg-red-500 w-full"
+                                  : active
+                                  ? "bg-purple-500 w-1/2 animate-pulse"
+                                  : "w-0"
+                              }`}
+                            />
+                          </div>
+                        </div>
+                        <span
+                          className={`text-xs font-mono truncate ${
+                            done
+                              ? "text-green-400"
+                              : failed
+                              ? "text-red-400"
+                              : active
+                              ? "text-purple-300"
+                              : "text-gray-600"
+                          }`}
+                        >
+                          {f.file_path}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

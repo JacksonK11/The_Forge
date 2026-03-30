@@ -782,8 +782,8 @@ def _estimate_run_cost(run: ForgeRun) -> dict:
     Estimate build cost from the spec's file_list.
 
     Classification:
-      Normal file:  A$0.10  (1 Sonnet/Opus call, ~4K input + 3.5K output tokens)
-      Complex file: A$0.20  (split generation = 2 calls, keywords or >200 est. lines)
+      Normal file:  A$0.26  (35K tokens blended: 85% input $3/M + 15% output $15/M × 1.55 AUD/USD)
+      Complex file: A$0.52  (split generation = 2 calls, keywords or >200 est. lines)
 
     Complex keywords: execution, pipeline, assembler, orchestrat, engine, coordinator, dispatcher
 
@@ -796,8 +796,8 @@ def _estimate_run_cost(run: ForgeRun) -> dict:
         "execution", "pipeline", "assembler", "orchestrat", "engine",
         "coordinator", "dispatcher",
     ])
-    _COST_NORMAL_AUD = 0.10
-    _COST_COMPLEX_AUD = 0.20
+    _COST_NORMAL_AUD = 0.26
+    _COST_COMPLEX_AUD = 0.52
     _FIXED_OVERHEAD_AUD = 0.50
     _WARNING_THRESHOLD_AUD = 10.0
 

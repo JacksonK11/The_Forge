@@ -56,9 +56,9 @@ _SUGGEST_IMPROVEMENTS_SCORE = 40
 _LARGE_BLUEPRINT_THRESHOLD = 60_000
 
 # Max tokens per call type
-_PARSE_MAX_TOKENS = 8_000       # Opus single-call parse — 8K is ample for spec JSON
+_PARSE_MAX_TOKENS = 32_000      # Single-call parse — 32K covers complex multi-service specs
 _SKELETON_MAX_TOKENS = 4_000
-_SECTION_MAX_TOKENS = 16_000
+_SECTION_MAX_TOKENS = 64_000
 
 
 # ── Main node ─────────────────────────────────────────────────────────────────
