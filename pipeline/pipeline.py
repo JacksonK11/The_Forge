@@ -144,6 +144,23 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
                 state.manifest = run.manifest_json
             state.current_stage = "generating"
 
+        # Restore spec + manifest + generated files when resuming straight to packaging
+        if resume_from == "packaging":
+            if run.spec_json:
+                state.spec = run.spec_json
+            if run.manifest_json:
+                state.manifest = run.manifest_json
+            state.current_stage = "packaging"
+            # Load all generated file content into state so package_node can format/zip them
+            from memory.models import ForgeFile
+            from sqlalchemy import select as _select
+            files_result = await session.execute(
+                _select(ForgeFile).where(ForgeFile.run_id == run_id)
+            )
+            for f in files_result.scalars().all():
+                if f.content:
+                    state.generated_files[f.file_path] = f.content
+
     await _build_log(run_id, "pipeline", f"Pipeline started (resume_from={resume_from})", "INFO")
     logger.info(f"Pipeline started: run_id={run_id} resume_from={resume_from}")
 
@@ -159,16 +176,17 @@ async def run_pipeline(run_id: str, resume_from: Optional[str] = None) -> None:
         logger.info(f"Run {run_id} paused for spec confirmation")
         return
 
-    # ── Stage 3: Architecture (skip if resuming mid-generation) ─────────────
-    if resume_from != "generating":
+    # ── Stage 3: Architecture (skip if resuming mid-generation or packaging) ──
+    if resume_from not in ("generating", "packaging"):
         state = await _run_stage(run_id, "architecting", architecture_node, state)
         if state.current_stage == "failed":
             return
 
-    # ── Stage 4: Code generation ─────────────────────────────────────────────
-    state = await _run_stage(run_id, "generating", codegen_node, state)
-    if state.current_stage == "failed":
-        return
+    # ── Stage 4: Code generation (skip if resuming straight to packaging) ────
+    if resume_from != "packaging":
+        state = await _run_stage(run_id, "generating", codegen_node, state)
+        if state.current_stage == "failed":
+            return
 
     # ── Stage 4b: Recovery pass — rebuild generation_failed files ─────────────
     if state.generation_failed_files:
