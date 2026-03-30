@@ -21,6 +21,8 @@ Stores deploy_status in ForgeRun via agents_registry table.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import re
 import secrets
@@ -36,19 +38,40 @@ if TYPE_CHECKING:
 
 FLY_API_BASE = "https://api.machines.dev"
 
-# Secrets that can be copied from the host environment
+# Secrets copied from the host (Forge) environment to every new agent
 SHARED_ENV_SECRETS = {
+    # AI providers
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
+    "TAVILY_API_KEY",
+    # Fly.io (same account — child apps need the same token)
+    "FLY_API_TOKEN",
+    # Notifications — Jackson's personal Telegram
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
-    "DATABASE_URL",
-    "REDIS_URL",
+    # Twilio — SMS/WhatsApp shared account
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_FROM_NUMBER",
+    # Google
+    "GOOGLE_CALENDAR_CREDENTIALS_JSON",
+    "GOOGLE_CALENDAR_ID",
+    "GOOGLE_MAPS_API_KEY",
+    "GOOGLE_MY_BUSINESS_ACCESS_TOKEN",
+    # Real-estate APIs
+    "DOMAIN_API_KEY",
+    "REALESTATE_API_KEY",
+    # Facebook / Meta
+    "FACEBOOK_ACCESS_TOKEN",
+    "FACEBOOK_PAGE_ID",
+    # GitHub (same org — used for pushing generated repos)
     "GITHUB_TOKEN",
 }
 
-# Secrets that are auto-generated
+# Secrets that are auto-generated fresh for every new agent
 AUTO_GENERATE_SECRETS = {
+    "SECRET_KEY",
+    "ADMIN_BEARER_TOKEN",
     "API_SECRET_KEY",
 }
 
@@ -152,6 +175,179 @@ async def _health_check(api_url: str) -> bool:
         return False
 
 
+# ── Fly Postgres + Redis provisioning ─────────────────────────────────────────
+
+
+async def _run_flyctl(
+    *args: str,
+    token: str,
+    timeout: float = 300.0,
+) -> tuple[int, str, str]:
+    """
+    Run a flyctl command and return (returncode, stdout, stderr).
+    FLY_API_TOKEN is injected into the subprocess environment.
+    """
+    env = {**os.environ, "FLY_API_TOKEN": token}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "flyctl",
+            *args,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout
+        )
+        return proc.returncode or 0, stdout_bytes.decode(), stderr_bytes.decode()
+    except asyncio.TimeoutError:
+        logger.error(f"[auto_deploy] flyctl timeout: flyctl {' '.join(args)}")
+        return 1, "", "timeout"
+    except FileNotFoundError:
+        logger.warning("[auto_deploy] flyctl not found in PATH — skipping provisioning")
+        return 1, "", "flyctl not found"
+    except Exception as exc:
+        logger.error(f"[auto_deploy] flyctl subprocess error: {exc}")
+        return 1, "", str(exc)
+
+
+async def _provision_postgres(
+    token: str, app_name: str, region: str = "syd"
+) -> Optional[str]:
+    """
+    Create a Fly Postgres cluster named <app_name>-db.
+    Returns the postgres:// connection string, or None on failure.
+    Does nothing and returns None if the cluster already exists.
+    """
+    pg_name = f"{app_name}-db"
+    logger.info(f"[auto_deploy] Provisioning Postgres: {pg_name} in {region}")
+
+    rc, stdout, stderr = await _run_flyctl(
+        "postgres", "create",
+        "--name", pg_name,
+        "--region", region,
+        "--vm-size", "shared-cpu-1x",
+        "--volume-size", "10",
+        "--initial-cluster-size", "1",
+        "--json",
+        token=token,
+        timeout=300.0,
+    )
+
+    if rc != 0:
+        if "already exists" in stderr.lower() or "already exists" in stdout.lower():
+            logger.info(f"[auto_deploy] Postgres cluster {pg_name} already exists")
+        else:
+            logger.warning(
+                f"[auto_deploy] flyctl postgres create failed for {pg_name}: {stderr[:400]}"
+            )
+        return None
+
+    try:
+        data = json.loads(stdout)
+        conn = (
+            data.get("ConnectionString")
+            or data.get("connection_string")
+            or data.get("uri")
+        )
+        if conn:
+            # asyncpg requires postgresql+asyncpg:// — keep as postgres:// here;
+            # individual agents normalise the scheme themselves.
+            logger.info(f"[auto_deploy] Postgres provisioned: {pg_name}")
+            return conn
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    # Fallback: attach command gives us the URL
+    logger.warning(
+        f"[auto_deploy] Could not parse Postgres URL from flyctl output; "
+        "set DATABASE_URL manually or re-run flyctl postgres attach"
+    )
+    return None
+
+
+async def _attach_postgres(
+    token: str, pg_name: str, app_name: str
+) -> Optional[str]:
+    """
+    Attach an existing Postgres cluster to an app.
+    Returns DATABASE_URL from the attach output, or None.
+    """
+    logger.info(f"[auto_deploy] Attaching {pg_name} to {app_name}")
+    rc, stdout, stderr = await _run_flyctl(
+        "postgres", "attach", pg_name,
+        "--app", app_name,
+        "--json",
+        token=token,
+        timeout=60.0,
+    )
+    if rc != 0:
+        logger.warning(
+            f"[auto_deploy] postgres attach failed for {app_name}: {stderr[:400]}"
+        )
+        return None
+    try:
+        data = json.loads(stdout)
+        return (
+            data.get("ConnectionString")
+            or data.get("connection_string")
+            or data.get("DATABASE_URL")
+        )
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
+async def _provision_redis(
+    token: str, app_name: str, region: str = "syd"
+) -> Optional[str]:
+    """
+    Create a Fly Redis (Upstash) instance named <app_name>-redis.
+    Returns the redis:// URL, or None on failure.
+    """
+    redis_name = f"{app_name}-redis"
+    logger.info(f"[auto_deploy] Provisioning Redis: {redis_name} in {region}")
+
+    rc, stdout, stderr = await _run_flyctl(
+        "redis", "create",
+        "--name", redis_name,
+        "--region", region,
+        "--no-replicas",
+        "--json",
+        token=token,
+        timeout=120.0,
+    )
+
+    if rc != 0:
+        if "already exists" in stderr.lower() or "already exists" in stdout.lower():
+            logger.info(f"[auto_deploy] Redis {redis_name} already exists")
+        else:
+            logger.warning(
+                f"[auto_deploy] flyctl redis create failed for {redis_name}: {stderr[:400]}"
+            )
+        return None
+
+    try:
+        data = json.loads(stdout)
+        url = (
+            data.get("PrivateUrl")
+            or data.get("private_url")
+            or data.get("PublicUrl")
+            or data.get("public_url")
+            or data.get("url")
+        )
+        if url:
+            logger.info(f"[auto_deploy] Redis provisioned: {redis_name}")
+            return url
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    logger.warning(
+        f"[auto_deploy] Could not parse Redis URL from flyctl output; "
+        "set REDIS_URL manually"
+    )
+    return None
+
+
 # ── Parsing helpers ───────────────────────────────────────────────────────────
 
 
@@ -173,6 +369,21 @@ def _parse_app_names_from_toml(generated_files: dict[str, str]) -> list[str]:
                     app_names.append(name)
 
     return app_names
+
+
+def _parse_primary_region(generated_files: dict[str, str]) -> str:
+    """
+    Return the primary region from the first fly.*.toml that declares one.
+    Falls back to "syd" (Sydney) — the default for all The Office agents.
+    """
+    pattern = re.compile(r'^primary_region\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+    for file_path, content in generated_files.items():
+        filename = file_path.split("/")[-1]
+        if filename.startswith("fly.") and filename.endswith(".toml"):
+            m = pattern.search(content)
+            if m:
+                return m.group(1)
+    return "syd"
 
 
 def _parse_fly_secrets(generated_files: dict[str, str]) -> dict[str, Optional[str]]:
@@ -329,8 +540,43 @@ async def auto_deploy_node(state: PipelineState) -> PipelineState:
     )
 
     token: str = settings.fly_api_token
+    region: str = _parse_primary_region(state.generated_files)
     raw_secrets = _parse_fly_secrets(state.generated_files)
     settable_secrets, manual_keys = _resolve_secrets(raw_secrets)
+
+    # ── Provision Postgres (if DATABASE_URL not already resolved) ──────────
+    # Use the first app name as the base name for shared infra (db + redis).
+    # Typically the API app is listed first in fly.*.toml files.
+    base_app = app_names[0]
+
+    if "DATABASE_URL" not in settable_secrets:
+        db_url = await _provision_postgres(token, base_app, region)
+        if db_url:
+            settable_secrets["DATABASE_URL"] = db_url
+            logger.info("[auto_deploy] DATABASE_URL provisioned from new Postgres cluster")
+        else:
+            logger.warning(
+                "[auto_deploy] Could not provision Postgres automatically — "
+                "DATABASE_URL must be set manually"
+            )
+            if "DATABASE_URL" in manual_keys:
+                pass  # already listed
+            else:
+                manual_keys.append("DATABASE_URL")
+
+    # ── Provision Redis (if REDIS_URL not already resolved) ────────────────
+    if "REDIS_URL" not in settable_secrets:
+        redis_url = await _provision_redis(token, base_app, region)
+        if redis_url:
+            settable_secrets["REDIS_URL"] = redis_url
+            logger.info("[auto_deploy] REDIS_URL provisioned from new Redis instance")
+        else:
+            logger.warning(
+                "[auto_deploy] Could not provision Redis automatically — "
+                "REDIS_URL must be set manually"
+            )
+            if "REDIS_URL" not in manual_keys:
+                manual_keys.append("REDIS_URL")
 
     if manual_keys:
         logger.warning(
@@ -341,6 +587,7 @@ async def auto_deploy_node(state: PipelineState) -> PipelineState:
         "apps": [],
         "manual_secrets_needed": manual_keys,
         "run_id": state.run_id,
+        "region": region,
     }
 
     try:
@@ -366,14 +613,21 @@ async def auto_deploy_node(state: PipelineState) -> PipelineState:
                     else:
                         logger.info(f"[auto_deploy] App already exists: {app_name}")
 
-                    # Step 2: Set secrets
-                    if settable_secrets:
-                        logger.info(
-                            f"[auto_deploy] Setting {len(settable_secrets)} secrets on {app_name}"
-                        )
-                        await _set_secrets(client, token, app_name, settable_secrets)
-                        app_result["secrets_set"] = list(settable_secrets.keys())
-                        logger.info(f"[auto_deploy] Secrets set on {app_name}")
+                    # Step 2: Set secrets — merge base secrets with per-app values
+                    per_app_secrets: dict[str, str] = {
+                        **settable_secrets,
+                        # These must always point to actual app names, not placeholders
+                        "FLY_APP_NAME": app_names[0],  # primary API app
+                        "FLY_WORKER_APP_NAME": next(
+                            (n for n in app_names if "worker" in n), app_names[-1]
+                        ),
+                    }
+                    logger.info(
+                        f"[auto_deploy] Setting {len(per_app_secrets)} secrets on {app_name}"
+                    )
+                    await _set_secrets(client, token, app_name, per_app_secrets)
+                    app_result["secrets_set"] = list(per_app_secrets.keys())
+                    logger.info(f"[auto_deploy] Secrets set on {app_name}")
 
                     # Step 3: Check if there's a recent release (deploy already running)
                     release = await _get_latest_release(client, token, app_name)
