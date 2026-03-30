@@ -548,7 +548,12 @@ async def resume_run(
     if run.status not in ("failed", "complete"):
         raise HTTPException(status_code=400, detail="Run is not in a resumable state")
 
-    resume_from = "generating" if run.manifest_json else "resume_from_architecture"
+    if run.manifest_json and run.files_complete >= run.file_count and run.file_count > 0:
+        resume_from = "packaging"
+    elif run.manifest_json:
+        resume_from = "generating"
+    else:
+        resume_from = "resume_from_architecture"
 
     queue = get_build_queue()
     queue.enqueue(
