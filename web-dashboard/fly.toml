@@ -1,4 +1,4 @@
-app = "the-forge-dashboard-v11"
+app = "the-forge-dashboard-v10"
 primary_region = "lhr"
 
 [build]
