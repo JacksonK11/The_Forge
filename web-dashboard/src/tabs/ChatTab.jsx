@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { sendChatMessageStream } from "../api.js";
 
 const STORAGE_KEY = "forge_chat";
@@ -7,10 +8,28 @@ const MEMORY_KEY = "forge_memory";
 
 const QUICK_STARTS = [
   "What can The Forge build?",
-  "How do I deploy to Fly.io?",
+  "What should I upgrade in my agents?",
   "What's in my current build?",
-  "Explain the 7-stage pipeline",
+  "Suggest improvements to my latest agent",
 ];
+
+// Parse ```upgrade {...} ``` blocks from assistant message content.
+// Returns { suggestions: [{run_id, description}], cleanContent: string }
+function parseUpgradeBlocks(content) {
+  const suggestions = [];
+  const cleaned = content.replace(/```upgrade\n([\s\S]*?)```/g, (_, json) => {
+    try {
+      const parsed = JSON.parse(json.trim());
+      if (parsed.run_id && parsed.description) {
+        suggestions.push(parsed);
+      }
+    } catch {
+      // malformed JSON — skip
+    }
+    return ""; // remove block from displayed text
+  }).trim();
+  return { suggestions, cleanContent: cleaned };
+}
 
 function loadMessages() {
   try {
@@ -65,9 +84,14 @@ function TypingIndicator() {
   );
 }
 
-function MessageBubble({ msg, isMobile }) {
+function MessageBubble({ msg, isMobile, onUpgrade }) {
   const isUser = msg.role === "user";
   const maxWidth = isMobile ? "max-w-[90%]" : "max-w-[75%]";
+
+  const { suggestions, cleanContent } = !isUser
+    ? parseUpgradeBlocks(msg.content)
+    : { suggestions: [], cleanContent: msg.content };
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3`}>
       {!isUser && (
@@ -75,24 +99,46 @@ function MessageBubble({ msg, isMobile }) {
           F
         </div>
       )}
-      <div
-        className={`${maxWidth} rounded-2xl px-4 py-2.5 text-sm ${
-          isUser
-            ? "bg-purple-700 text-white rounded-tr-sm"
-            : "bg-gray-800 text-gray-200 rounded-tl-sm"
-        }`}
-      >
-        <div className="leading-relaxed overflow-x-auto">
-          <div className="whitespace-pre-wrap min-w-0">{msg.content}</div>
+      <div className={`${maxWidth} flex flex-col gap-2`}>
+        <div
+          className={`rounded-2xl px-4 py-2.5 text-sm ${
+            isUser
+              ? "bg-purple-700 text-white rounded-tr-sm"
+              : "bg-gray-800 text-gray-200 rounded-tl-sm"
+          }`}
+        >
+          <div className="leading-relaxed overflow-x-auto">
+            <div className="whitespace-pre-wrap min-w-0">{cleanContent}</div>
+          </div>
+          {msg.timestamp && (
+            <p className={`text-xs mt-1 ${isUser ? "text-purple-300" : "text-gray-500"}`}>
+              {new Date(msg.timestamp).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          )}
         </div>
-        {msg.timestamp && (
-          <p className={`text-xs mt-1 ${isUser ? "text-purple-300" : "text-gray-500"}`}>
-            {new Date(msg.timestamp).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        )}
+
+        {/* Upgrade suggestion buttons */}
+        {suggestions.map((s, i) => (
+          <button
+            key={i}
+            onClick={() => onUpgrade(s)}
+            className="flex items-start gap-2 bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700/50 hover:border-purple-600 rounded-xl px-3 py-2.5 text-left transition-colors group"
+          >
+            <span className="text-purple-400 mt-0.5 flex-shrink-0 text-base leading-none">⚡</span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-purple-300 group-hover:text-purple-200 mb-0.5">
+                Send to Upgrade
+              </p>
+              <p className="text-xs text-gray-400 group-hover:text-gray-300 line-clamp-2 leading-snug">
+                {s.description.length > 120 ? s.description.slice(0, 120) + "…" : s.description}
+              </p>
+            </div>
+            <span className="text-purple-500 group-hover:text-purple-300 text-sm ml-auto flex-shrink-0 self-center">→</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -104,6 +150,7 @@ const TOOL_LABELS = {
 };
 
 export default function ChatTab({ isMobile = false }) {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -111,6 +158,11 @@ export default function ChatTab({ isMobile = false }) {
   const [streamingMsg, setStreamingMsg] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  function handleUpgrade({ run_id, description }) {
+    const params = new URLSearchParams({ run_id, description });
+    navigate(`/upgrade?${params.toString()}`);
+  }
 
   useEffect(() => {
     setMessages(loadMessages());
@@ -258,7 +310,7 @@ export default function ChatTab({ isMobile = false }) {
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} isMobile={isMobile} />
+          <MessageBubble key={msg.id} msg={msg} isMobile={isMobile} onUpgrade={handleUpgrade} />
         ))}
 
         {/* Streaming message — live tokens + tool use indicators */}

@@ -242,6 +242,24 @@ THE OFFICE PORTFOLIO:
 4. ARIA — research intelligence, 12 domains
 5. The Office — unified command center above all agents
 
+UPGRADE SUGGESTIONS:
+You can proactively suggest targeted upgrades to any existing agent. When the user asks what to \
+improve, what to change, or how to enhance an agent — analyse the build context and generate specific, \
+actionable upgrade suggestions.
+
+For each upgrade you want to suggest, output a fenced code block tagged "upgrade" containing JSON:
+
+```upgrade
+{"run_id": "EXACT_RUN_ID_FROM_CONTEXT", "description": "Detailed upgrade description — what to change, which files, expected outcome."}
+```
+
+Rules for upgrade blocks:
+- Use the exact run_id from the live build context (not a placeholder)
+- The description must be specific enough to execute: what behaviour changes, which modules, what the result looks like
+- You can suggest multiple upgrade blocks in one response — one per change
+- The frontend will render a "→ Send to Upgrade" button for each block so Jackson can fire upgrades instantly
+- For changes to agents not in the build context (like DDD), explain what to do but note The Forge can only upgrade agents it built
+
 Be direct, technical, and specific. Reference exact file paths and run IDs. Use AUD for costs."""
 
 

@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { planIncrementalChange, getTemplates } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 
 export default function Upgrade() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { addToast } = useToast();
-  const [agentId, setAgentId] = useState("");
-  const [changeText, setChangeText] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("run_id") || "");
+  const [changeText, setChangeText] = useState(searchParams.get("description") || "");
   const [files, setFiles] = useState([]);
   const [inputMode, setInputMode] = useState("text");
   const [repoName, setRepoName] = useState("");
@@ -42,6 +43,13 @@ export default function Upgrade() {
     <>
       <div className="sec-title">Upgrade</div>
       <div className="sec-sub">Describe a change → <span>targeted incremental update to an existing deployed agent</span></div>
+
+      {/* Pre-filled from chat banner */}
+      {searchParams.get("run_id") && (
+        <div style={{ marginBottom: "1rem", padding: "0.75rem 1rem", background: "rgba(126,34,206,0.15)", border: "1px solid rgba(126,34,206,0.4)", borderRadius: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ color: "#c084fc", fontSize: "0.875rem" }}>⚡ Pre-filled from Forge Assistant — review and submit when ready.</span>
+        </div>
+      )}
 
       {/* ── Form ── */}
       <div className="g2" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
