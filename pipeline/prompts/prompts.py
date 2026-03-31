@@ -292,6 +292,17 @@ ABSOLUTE RULES — violating any of these means the file will be rejected and re
 9. Loguru for all logging — logger.info(), logger.error(), logger.warning(), logger.debug()
 10. The file must work on first deploy with no modifications
 
+LAYER 1 DATABASE RULES — mandatory for every generated database/model file:
+- NEVER name a SQLAlchemy column "metadata" — it shadows DeclarativeBase.metadata and crashes on startup with InvalidRequestError. Use "extra_data", "meta", or "payload" instead. If the DB column must be named "metadata", use mapped_column("metadata", JSONB) with a different Python attribute name.
+- NEVER name a column "query", "registry", "__table__", "__mapper__", "__init__" — all reserved by SQLAlchemy.
+- database.py MUST strip sslmode from DATABASE_URL when using asyncpg. Fly.io managed Postgres ALWAYS injects ?sslmode=disable and asyncpg rejects it. Required code in _build_database_url(): url = re.sub(r'[?&]sslmode=[^&]*', '', url); url = re.sub(r'\?&', '?', url)
+- pgvector MUST be optional and non-fatal. Wrap CREATE EXTENSION vector in try/except that logs warning but does NOT raise. If pgvector unavailable, store embeddings as JSONB and compute cosine similarity in Python. Never let pgvector absence prevent table creation.
+- database.py connect_args MUST include ssl="disable" for Fly.io: connect_args={"ssl": "disable"}
+
+LAYER 2 INFRASTRUCTURE RULES — mandatory for requirements.txt:
+- requirements.txt MUST include every package actually imported in any .py file. Never omit: asyncpg, pgvector, sqlalchemy[asyncpg], fastapi, uvicorn[standard], pydantic, pydantic-settings, loguru, anthropic, openai, httpx, redis, rq, apscheduler, python-dotenv, alembic, pillow (if images used).
+- Add pgvector to requirements.txt even if stored as JSONB — the pgvector.sqlalchemy import is needed for type registration.
+
 LAYER 3 ADMIN ENDPOINT — mandatory for every generated FastAPI backend:
 Every generated API MUST include a POST /admin/set-secrets endpoint that:
 - Accepts {"secrets": {"KEY": "value", ...}} body (Bearer token auth required)
@@ -308,12 +319,43 @@ FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
 - NEVER generate a separate scheduler fly.toml or Fly.io app — APScheduler runs inside the worker process
 - NEVER generate a separate Fly.io Postgres app — all agents share the existing managed Postgres app "the-forge-db". Each agent gets its own database named {agent_slug}_db on that shared instance. Use flyctl postgres attach to connect.
 - GitHub Actions deploy steps MUST include --ha=false flag: flyctl deploy --app NAME --config FILE --ha=false
+- GitHub Actions deploy steps MUST create the Fly app before deploying to handle first deploy (app doesn't exist yet): run "flyctl apps create APP_NAME --org personal 2>/dev/null || true" before every flyctl deploy step
+- GitHub Actions MUST include a post-deploy health check step after each flyctl deploy: poll https://APP_NAME.fly.dev/health every 5 seconds for up to 60 seconds using a shell loop, fail the workflow if health check never passes
+- Generated FLY_SECRETS.txt MUST include an explicit ordering note: "Set ALL secrets BEFORE running flyctl deploy for the first time. The app will crash on startup if critical secrets are missing."
+- Generated deploy.yml MUST include a "Verify secrets" step before deploying: flyctl secrets list --app APP_NAME to confirm secrets are set (non-blocking — just informational output)
 
 DASHBOARD-FROM-API PATTERN — mandatory for every agent with a React dashboard:
-- Dockerfile.api MUST use a multi-stage build: Stage 1 builds the React dashboard (node:22-alpine), Stage 2 runs the Python API (python:3.12-alpine) and copies the built dist/ into /app/dist
+- Dockerfile.api MUST use a multi-stage build exactly as shown:
+  Stage 1 (dashboard builder):
+    FROM node:22-alpine AS dashboard-builder
+    WORKDIR /build
+    COPY dashboard/package.json ./
+    RUN npm install --legacy-peer-deps
+    COPY dashboard/ ./
+    RUN npx vite build
+  Stage 2 (Python API):
+    FROM python:3.12-slim
+    WORKDIR /app
+    RUN apt-get update && apt-get install -y --no-install-recommends build-essential libpq-dev curl && rm -rf /var/lib/apt/lists/*
+    COPY requirements.txt .
+    RUN pip install --no-cache-dir -r requirements.txt
+    COPY . .
+    COPY --from=dashboard-builder /build/dist /app/dist
+    ENV PYTHONPATH=/app
+    RUN useradd --no-log-init -m -u 1000 app && chown -R app:app /app
+    USER app
+    CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 - FastAPI main.py MUST mount the dashboard at the root path AFTER all API routes: app.mount("/", StaticFiles(directory="dist", html=True), name="static")
-- The dashboard src lives in dashboard/ directory. Dockerfile.api copies dashboard/ into the build stage and runs npm install && npm run build
+- The dashboard src lives in dashboard/ directory. Dockerfile.api copies dashboard/package.json first (for Docker layer caching), then the rest of dashboard/.
 - This gives the agent one Fly app (API) that serves both the JSON API and the React dashboard — no second machine needed
+
+LAYER 5 PACKAGE.JSON AND TSCONFIG RULES — mandatory for every dashboard build:
+- package.json dependencies MUST include every package imported in any .tsx/.jsx/.ts/.js file. Always include: react, react-dom, react-router-dom, @tanstack/react-query, @tanstack/react-query-devtools, axios, lucide-react, date-fns, recharts, zustand, clsx, tailwind-merge, vite-plugin-pwa. Add @heroicons/react if any heroicon is used.
+- NEVER omit @tanstack/react-query-devtools — it is imported in App.tsx and its absence causes a Rollup build failure.
+- tsconfig.node.json: if "composite": true is set, NEVER also set "noEmit": true — TypeScript error TS6310 (composite projects cannot disable emit). Remove noEmit entirely from tsconfig.node.json.
+- Dockerfile.api dashboard build MUST use "npx vite build" NOT "npm run build" or "tsc && vite build". tsc type-checking blocks the build on minor annotation mismatches. npx vite build uses esbuild which is fast and lenient.
+- Dockerfile.api npm install MUST use "--legacy-peer-deps" flag: RUN npm install --legacy-peer-deps. eslint-plugin-react-hooks@4 has a peer dependency conflict with ESLint 9 that breaks npm install without this flag.
+- Every function and component in a .tsx/.jsx file MUST be declared only ONCE. Never generate a file where the same function name (e.g. StatCard, apiFetch, PropertyScansTab) appears in two separate function/const declarations. The esbuild bundler throws "The symbol X has already been declared" and the build fails.
 
 LAYER 5 DASHBOARD REQUIREMENTS — mandatory for every React dashboard file:
 Every Layer 5 (web dashboard) file MUST include mobile-first PWA support:
@@ -488,6 +530,12 @@ Check for ALL of the following issues:
 8. Missing loguru imports when logger is used
 9. Using print() instead of logger for production logging
 10. Pydantic v1 syntax (class Config: instead of model_config = ConfigDict(...))
+11. SQLAlchemy reserved attribute names: if this is a models.py file, flag any column named "metadata", "query", "registry" — these shadow DeclarativeBase internals and crash on startup
+12. asyncpg sslmode: if this is a database.py file using asyncpg, flag if DATABASE_URL is used without stripping "sslmode" — Fly Postgres always injects ?sslmode=disable which asyncpg rejects
+13. tsconfig composite + noEmit: if this is a tsconfig*.json file, flag if both "composite": true and "noEmit": true are set — they are mutually exclusive (TypeScript TS6310 error)
+14. Duplicate declarations: flag any function name, class name, or const name that is declared more than once in the same file — esbuild throws "symbol already declared" and the build fails
+15. Missing --legacy-peer-deps: if this is a Dockerfile and it contains "npm install" without "--legacy-peer-deps", flag it — ESLint peer dep conflicts will break the build
+16. Wrong dashboard build command: if this is a Dockerfile and it contains "npm run build" or "tsc && vite build" for the dashboard, flag it — use "npx vite build" instead to avoid TypeScript type-check failures blocking the build
 
 Respond with JSON only:
 {
@@ -532,7 +580,7 @@ FILE MANIFEST ({file_count} files):
 SAMPLE FILES (key files for review):
 {sample_files}
 
-Find every reason this would fail on first deploy. Consider:
+Find every reason this would fail on first deploy. Consider ALL of the following:
 1. Missing environment variables referenced in code but not in .env.example or FLY_SECRETS.txt
 2. Import errors: files importing from paths that don't exist in the manifest
 3. Fly.io config errors: wrong machine sizes, missing internal_port, wrong app names
@@ -542,6 +590,17 @@ Find every reason this would fail on first deploy. Consider:
 7. GitHub Actions: FLY_API_TOKEN secret referenced but not documented
 8. Missing __init__.py files in Python packages
 9. React build failures: missing npm packages, wrong import paths, missing index.html
+10. SQLAlchemy reserved column names: scan models.py for any column attribute named "metadata", "query", or "registry" — these crash the app on startup with InvalidRequestError
+11. asyncpg sslmode: check database.py — if it uses asyncpg but does NOT strip sslmode from DATABASE_URL, it will fail to connect on Fly.io (Fly Postgres always injects ?sslmode=disable)
+12. Dockerfile multi-stage check: Dockerfile.api MUST have two FROM statements — node:* as dashboard-builder AND python:* for the API. A single-stage Python-only Dockerfile means the React dashboard never gets built and the app serves nothing at /
+13. npm --legacy-peer-deps: check Dockerfile.api — if npm install does not use --legacy-peer-deps, the build will fail due to eslint-plugin-react-hooks@4 peer dependency conflict with ESLint 9
+14. npx vite build: check Dockerfile.api — if it uses "npm run build" or "tsc && vite build" instead of "npx vite build", TypeScript type errors will block the build
+15. package.json completeness: check dashboard/package.json — if it is missing @tanstack/react-query-devtools or any other package that is imported in the dashboard .tsx/.jsx files, Rollup will fail with "failed to resolve import"
+16. tsconfig composite+noEmit: check dashboard/tsconfig.node.json — if it has both "composite":true and "noEmit":true, TypeScript will throw TS6310 and the build fails
+17. deploy.yml app creation: check .github/workflows/deploy.yml — each flyctl deploy step MUST be preceded by a "flyctl apps create APP_NAME --org personal 2>/dev/null || true" step, otherwise first deploy fails with "app not found"
+18. deploy.yml post-deploy health check: after each flyctl deploy step there MUST be a health check polling loop — without it, a broken deploy shows as green in GitHub Actions
+19. requirements.txt completeness: check requirements.txt against all Python imports — missing packages cause Docker build failures or import errors at runtime
+20. pgvector hard dependency: if models.py has Vector() columns or database.py raises on CREATE EXTENSION vector failure, the app will not start on standard Fly Postgres instances that lack pgvector
 
 Respond with JSON only:
 {{

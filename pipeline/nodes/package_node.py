@@ -62,10 +62,21 @@ async def package_node(state: PipelineState) -> PipelineState:
         generated_files=state.generated_files,
     )
     if not verifier_result.deployment_ready:
+        blocking_count = len(verifier_result.blocking_issues)
         logger.warning(
-            f"[{state.run_id}] Verifier found {len(verifier_result.blocking_issues)} blocking issues — "
-            f"packaging anyway with warnings in build report"
+            f"[{state.run_id}] Verifier found {blocking_count} blocking issues — "
+            f"packaging with issues in build report"
         )
+        # Inject verifier blocking issues into failed_files_report so they appear
+        # prominently in the build summary, Telegram notification, and dashboard UI
+        verifier_issues_text = "\n\n=== VERIFIER BLOCKING ISSUES (fix before deploying) ===\n"
+        for issue in verifier_result.blocking_issues:
+            verifier_issues_text += (
+                f"\n[{issue.category.upper()}] {issue.file}\n"
+                f"  Problem: {issue.issue}\n"
+                f"  Fix:     {issue.fix}\n"
+            )
+        state.failed_files_report = (state.failed_files_report or "") + verifier_issues_text
 
     # ── Run security scan (pip-audit + detect-secrets + anti-patterns) ────────
     security_scan_content = await run_security_scan(state.generated_files)

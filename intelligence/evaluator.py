@@ -19,6 +19,7 @@ The evaluator is called from layer_generator.py after every file generation.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -56,6 +57,111 @@ class EvaluationResult:
         return [i for i in self.issues if i.severity == "warning"]
 
 
+def _run_static_checks(file_path: str, content: str) -> list[EvaluationIssue]:
+    """
+    Fast string-matching checks for known deployment-breaking patterns.
+    Runs before LLM evaluation — catches definitive bugs with zero API cost.
+    """
+    issues: list[EvaluationIssue] = []
+    basename = file_path.split("/")[-1]
+
+    # ── models.py: SQLAlchemy reserved attribute names ────────────────────────
+    if basename == "models.py":
+        reserved = ["metadata", "query", "registry"]
+        for name in reserved:
+            # Match: name: Mapped[...] = mapped_column(  OR  name = Column(  OR  name = mapped_column(
+            if re.search(rf'\b{name}\s*:\s*Mapped', content) or \
+               re.search(rf'\b{name}\s*=\s*mapped_column\s*\(', content) or \
+               re.search(rf'\b{name}\s*=\s*Column\s*\(', content):
+                issues.append(EvaluationIssue(
+                    severity="critical",
+                    line=f"Column named '{name}'",
+                    issue=f"'{name}' is a reserved SQLAlchemy DeclarativeBase attribute — crashes on startup with InvalidRequestError.",
+                    fix=f"Rename the Python attribute to 'extra_{name}' and use mapped_column('{name}', ...) to keep the DB column name.",
+                ))
+
+    # ── database.py: asyncpg + sslmode incompatibility ───────────────────────
+    if basename == "database.py":
+        uses_asyncpg = "asyncpg" in content or "postgresql+asyncpg" in content
+        has_sslmode_strip = "sslmode" in content and "re.sub" in content
+        if uses_asyncpg and "sslmode" in content and not has_sslmode_strip:
+            issues.append(EvaluationIssue(
+                severity="critical",
+                line="DATABASE_URL handling",
+                issue="asyncpg does not support 'sslmode' in the connection URL. Fly Postgres always injects ?sslmode=disable.",
+                fix="Add: url = re.sub(r'[?&]sslmode=[^&]*', '', url) in the URL-building function before passing to create_async_engine.",
+            ))
+
+    # ── tsconfig*.json: composite + noEmit mutually exclusive ────────────────
+    if basename.startswith("tsconfig") and basename.endswith(".json"):
+        try:
+            parsed = json.loads(content)
+            opts = parsed.get("compilerOptions", {})
+            if opts.get("composite") and opts.get("noEmit"):
+                issues.append(EvaluationIssue(
+                    severity="critical",
+                    line="compilerOptions",
+                    issue="'composite: true' and 'noEmit: true' are mutually exclusive — TypeScript error TS6310 (composite projects cannot disable emit).",
+                    fix="Remove 'noEmit: true' from this tsconfig file entirely.",
+                ))
+        except (json.JSONDecodeError, Exception):
+            pass
+
+    # ── Dockerfile: npm install without --legacy-peer-deps ───────────────────
+    if "Dockerfile" in basename or basename == "Dockerfile":
+        if "npm install" in content and "--legacy-peer-deps" not in content:
+            issues.append(EvaluationIssue(
+                severity="critical",
+                line="RUN npm install",
+                issue="npm install without --legacy-peer-deps will fail due to eslint-plugin-react-hooks@4 peer dependency conflict with ESLint 9.",
+                fix="Change to: RUN npm install --legacy-peer-deps",
+            ))
+        if ("npm run build" in content or "tsc && vite build" in content) and "npx vite build" not in content:
+            issues.append(EvaluationIssue(
+                severity="critical",
+                line="RUN npm run build / tsc && vite build",
+                issue="'npm run build' runs 'tsc && vite build' which fails when TypeScript type errors exist. Use 'npx vite build' to bypass tsc.",
+                fix="Change to: RUN npx vite build",
+            ))
+
+    # ── Any .tsx/.jsx/.ts file: duplicate function/const declarations ─────────
+    if file_path.endswith((".tsx", ".jsx", ".ts", ".js")) and basename != "vite.config.ts":
+        fn_names: list[str] = re.findall(r'^(?:export\s+)?(?:default\s+)?function\s+(\w+)', content, re.MULTILINE)
+        const_names: list[str] = re.findall(r'^(?:export\s+)?const\s+(\w+)\s*=', content, re.MULTILINE)
+        all_names = fn_names + const_names
+        seen: set[str] = set()
+        for name in all_names:
+            if name in seen:
+                issues.append(EvaluationIssue(
+                    severity="critical",
+                    line=f"Declaration of '{name}'",
+                    issue=f"'{name}' is declared more than once in this file. esbuild throws 'The symbol has already been declared' and the build fails.",
+                    fix=f"Remove the duplicate declaration of '{name}' — keep only one.",
+                ))
+            seen.add(name)
+
+    # ── package.json: commonly forgotten packages ─────────────────────────────
+    if basename == "package.json":
+        try:
+            parsed = json.loads(content)
+            deps = {**parsed.get("dependencies", {}), **parsed.get("devDependencies", {})}
+            must_have = {
+                "@tanstack/react-query-devtools": "Imported in App.tsx — its absence causes a Rollup 'failed to resolve import' build failure.",
+            }
+            for pkg, reason in must_have.items():
+                if pkg not in deps:
+                    issues.append(EvaluationIssue(
+                        severity="critical",
+                        line="dependencies",
+                        issue=f"Missing '{pkg}'. {reason}",
+                        fix=f"Add \"{pkg}\": \"^5.0.0\" to dependencies.",
+                    ))
+        except (json.JSONDecodeError, Exception):
+            pass
+
+    return issues
+
+
 async def evaluate_file(
     file_path: str,
     purpose: str,
@@ -78,6 +184,23 @@ async def evaluate_file(
     # Skip evaluation for trivial files
     if _is_trivial_file(file_path, content):
         return EvaluationResult(passed=True, summary="Trivial file — evaluation skipped")
+
+    # Run fast static checks first — catches known deployment-breaking patterns
+    # with zero API cost before invoking the LLM evaluator
+    static_issues = _run_static_checks(file_path, content)
+    if static_issues:
+        critical = [i for i in static_issues if i.severity == "critical"]
+        logger.warning(
+            f"Static checks found {len(critical)} critical issue(s) in {file_path}: "
+            + "; ".join(i.issue[:80] for i in critical)
+        )
+        if strict and critical:
+            return EvaluationResult(
+                passed=False,
+                issues=static_issues,
+                summary=f"Static check failed: {critical[0].issue[:120]}",
+                model_used="static",
+            )
 
     model = router.get_model("evaluation")
 
@@ -115,9 +238,14 @@ async def evaluate_file(
         if strict and any(i.severity == "critical" for i in issues):
             passed = False
 
+        # Merge static issues with LLM issues (static issues take priority)
+        all_issues = static_issues + issues
+        if strict and any(i.severity == "critical" for i in static_issues):
+            passed = False
+
         result = EvaluationResult(
             passed=passed,
-            issues=issues,
+            issues=all_issues,
             summary=raw.get("summary", ""),
             model_used=model,
         )

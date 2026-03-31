@@ -199,10 +199,14 @@ def _sample_key_files(generated_files: dict[str, str]) -> str:
         "requirements.txt",
         "docker-compose.yml",
         ".env.example",
+        # Dashboard build chain — critical for catching npm/tsconfig/package.json issues
+        "dashboard/package.json",
+        "dashboard/tsconfig.json",
+        "dashboard/tsconfig.node.json",
     ]
-    # Also include any fly.toml and Dockerfile files
-    for path in generated_files:
-        if path.endswith(".toml") or "Dockerfile" in path:
+    # Also include any fly.toml, Dockerfile, and GitHub Actions files
+    for path in sorted(generated_files.keys()):
+        if path.endswith(".toml") or "Dockerfile" in path or ".github/workflows" in path:
             if path not in priority:
                 priority.append(path)
 
