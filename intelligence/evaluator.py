@@ -140,6 +140,36 @@ def _run_static_checks(file_path: str, content: str) -> list[EvaluationIssue]:
                 ))
             seen.add(name)
 
+    # ── Dockerfile.worker: must not use uvicorn as CMD ───────────────────────
+    if "Dockerfile" in basename and "worker" in basename.lower():
+        if "uvicorn" in content and "CMD" in content:
+            # Check if uvicorn appears in the CMD line
+            cmd_lines = [l for l in content.splitlines() if l.strip().startswith("CMD")]
+            for cmd_line in cmd_lines:
+                if "uvicorn" in cmd_line:
+                    issues.append(EvaluationIssue(
+                        severity="critical",
+                        line="CMD",
+                        issue="Dockerfile.worker uses 'uvicorn' as CMD — workers run RQ jobs, not an HTTP server. This starts the wrong process.",
+                        fix="Change CMD to: [\"python\", \"-m\", \"rq\", \"worker\", \"--with-scheduler\", \"QUEUE_NAME\"] matching the queue name in main.py.",
+                    ))
+
+    # ── main.py / app.py: must have startup env-var validation ────────────────
+    if basename in ("main.py", "app.py") and "FastAPI" in content:
+        has_validation = (
+            "_validate_critical_secrets" in content or
+            "validate_critical_secrets" in content or
+            "missing_critical" in content or
+            "Missing required secrets" in content
+        )
+        if not has_validation:
+            issues.append(EvaluationIssue(
+                severity="critical",
+                line="lifespan / startup",
+                issue="FastAPI main.py has no startup env-var validation. App will crash mid-request with cryptic errors if secrets are missing.",
+                fix="Add _validate_critical_secrets() called at lifespan startup: check all critical env vars, raise RuntimeError with clear message if any are missing.",
+            ))
+
     # ── package.json: commonly forgotten packages ─────────────────────────────
     if basename == "package.json":
         try:

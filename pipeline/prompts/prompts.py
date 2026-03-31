@@ -303,6 +303,15 @@ LAYER 2 INFRASTRUCTURE RULES — mandatory for requirements.txt:
 - requirements.txt MUST include every package actually imported in any .py file. Never omit: asyncpg, pgvector, sqlalchemy[asyncpg], fastapi, uvicorn[standard], pydantic, pydantic-settings, loguru, anthropic, openai, httpx, redis, rq, apscheduler, python-dotenv, alembic, pillow (if images used).
 - Add pgvector to requirements.txt even if stored as JSONB — the pgvector.sqlalchemy import is needed for type registration.
 
+LAYER 3 STARTUP ENV-VAR VALIDATION — mandatory in every generated FastAPI main.py:
+Every generated main.py MUST include a _validate_critical_secrets() function called at lifespan startup that:
+- Defines a dict of critical env vars (DATABASE_URL, REDIS_URL, API_SECRET_KEY, and any required API keys from the spec)
+- Checks each one with os.environ.get() or settings attribute
+- If any are missing: logs the full list with logger.error(), sends a Telegram alert if TELEGRAM_BOT_TOKEN is set, then raises RuntimeError to abort startup
+- Defines a separate dict of optional env vars and logs a warning (not raise) if any are missing
+- Logs "All critical secrets validated ✓" on success
+This ensures the app fails immediately with a clear error instead of crashing mid-request when a secret is missing.
+
 LAYER 3 ADMIN ENDPOINT — mandatory for every generated FastAPI backend:
 Every generated API MUST include a POST /admin/set-secrets endpoint that:
 - Accepts {"secrets": {"KEY": "value", ...}} body (Bearer token auth required)
@@ -318,6 +327,7 @@ FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
 - NEVER generate a separate dashboard fly.toml, Fly.io app, or Dockerfile.dashboard — the React dashboard is served as static files directly from the API service (saves one entire Fly machine per agent)
 - NEVER generate a separate scheduler fly.toml or Fly.io app — APScheduler runs inside the worker process
 - NEVER generate a separate Fly.io Postgres app — all agents share the existing managed Postgres app "the-forge-db". Each agent gets its own database named {agent_slug}_db on that shared instance. Use flyctl postgres attach to connect.
+- Dockerfile.worker MUST be a separate file from Dockerfile.api with CMD ["python", "-m", "rq", "worker", "--with-scheduler", "QUEUE_NAME"] or the equivalent worker entrypoint. NEVER use uvicorn as the CMD in a worker Dockerfile — the worker runs RQ jobs, not an HTTP server. The queue name MUST match the queue name used in main.py when creating the Queue() object.
 - GitHub Actions deploy steps MUST include --ha=false flag: flyctl deploy --app NAME --config FILE --ha=false
 - GitHub Actions deploy steps MUST create the Fly app before deploying to handle first deploy (app doesn't exist yet): run "flyctl apps create APP_NAME --org personal 2>/dev/null || true" before every flyctl deploy step
 - GitHub Actions MUST include a post-deploy health check step after each flyctl deploy: poll https://APP_NAME.fly.dev/health every 5 seconds for up to 60 seconds using a shell loop, fail the workflow if health check never passes
@@ -601,6 +611,8 @@ Find every reason this would fail on first deploy. Consider ALL of the following
 18. deploy.yml post-deploy health check: after each flyctl deploy step there MUST be a health check polling loop — without it, a broken deploy shows as green in GitHub Actions
 19. requirements.txt completeness: check requirements.txt against all Python imports — missing packages cause Docker build failures or import errors at runtime
 20. pgvector hard dependency: if models.py has Vector() columns or database.py raises on CREATE EXTENSION vector failure, the app will not start on standard Fly Postgres instances that lack pgvector
+21. Worker Dockerfile CMD: check Dockerfile.worker — if the CMD contains "uvicorn" the worker will start an HTTP server instead of processing RQ jobs. CMD must be "rq worker" or equivalent worker entrypoint
+22. Startup env-var validation: check main.py — if there is no _validate_critical_secrets() or equivalent function called at lifespan startup, missing secrets will cause cryptic mid-request crashes instead of a clear startup failure
 
 Respond with JSON only:
 {{
