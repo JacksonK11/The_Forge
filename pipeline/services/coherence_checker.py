@@ -400,12 +400,22 @@ class CoherenceChecker:
             prompt = (
                 "Analyse these generated code snippets for cross-file consistency issues.\n\n"
                 f"{combined}\n\n"
-                "Check only two things:\n"
+                "Check THREE things:\n"
                 "1. Any frontend fetch URL that does NOT match a backend route path?\n"
-                "2. Any Pydantic schema field that references a column NOT present in the SQLAlchemy model?\n\n"
+                "2. Any Pydantic schema field that references a column NOT present in the SQLAlchemy model?\n"
+                "3. Any TypeScript interface field whose name or type does NOT match what the corresponding "
+                "Pydantic response model actually returns?\n"
+                "   Examples of this type of mismatch:\n"
+                "   - Backend: `insights: str` but frontend interface has `insights: string[]`\n"
+                "   - Backend: `user_ratings_total: int` but frontend interface uses `review_count: number`\n"
+                "   - Backend returns a flat string field but frontend expects an array, object, or enum\n"
+                "   Flag any field name or type divergence between Pydantic response models and "
+                "TypeScript interfaces that represent the same resource.\n\n"
                 "Return JSON only (no markdown fences), with this exact structure:\n"
                 '{"route_mismatches": [{"frontend_call": "str", "issue": "str"}], '
                 '"model_mismatches": [{"pydantic_field": "str", "issue": "str"}]}\n\n'
+                "Put TypeScript↔Pydantic type mismatches in model_mismatches with the field name and "
+                "a description of the mismatch (e.g. 'insights: backend str vs frontend string[]').\n"
                 "If there are no issues, return empty arrays. Do not invent issues."
             )
 

@@ -170,6 +170,74 @@ def _run_static_checks(file_path: str, content: str) -> list[EvaluationIssue]:
                 fix="Add _validate_critical_secrets() called at lifespan startup: check all critical env vars, raise RuntimeError with clear message if any are missing.",
             ))
 
+    # ── FastAPI routes: status_code=204/205 with response body ───────────────
+    if file_path.endswith(".py") and ("routes/" in file_path or "api/" in file_path):
+        # Find all @router.* decorator lines that set status_code=204 or 205
+        for m in re.finditer(
+            r'@(?:app|router)\.\w+\([^)]*status_code\s*=\s*(204|205)[^)]*\)',
+            content
+        ):
+            # Grab the next ~20 lines after the decorator to find the function body
+            start = m.end()
+            block = content[start:start + 600]
+            # If the function returns something other than None / Response(204)
+            has_return_value = bool(re.search(
+                r'return\s+(?!None\b|Response\s*\()(?!$)(\S)',
+                block, re.MULTILINE
+            ))
+            if has_return_value:
+                issues.append(EvaluationIssue(
+                    severity="critical",
+                    line=f"status_code={m.group(1)} route",
+                    issue=(
+                        f"FastAPI endpoint with status_code={m.group(1)} returns a response body. "
+                        "HTTP 204/205 must have NO body — FastAPI raises AssertionError at startup, "
+                        "crashing the entire app before the first request is served."
+                    ),
+                    fix=(
+                        f"Either change status_code to 200 and return a dict "
+                        f'(e.g. return {{"deleted": True}}), '
+                        f"or change the return type to Response and return "
+                        f"Response(status_code={m.group(1)}) with no body."
+                    ),
+                ))
+
+    # ── Frontend tab components: hardcoded mock arrays shadow API client ──────
+    if file_path.endswith((".tsx", ".jsx")) and (
+        "Tab" in basename or "Page" in basename or "View" in basename
+    ):
+        has_api_import = bool(re.search(
+            r'import\s+.*(?:Api|api|client|Client|fetch|hooks)\b',
+            content, re.MULTILINE
+        ))
+        # Top-level const arrays that look like hardcoded mock data
+        mock_arrays = re.findall(
+            r'^const\s+[A-Z_][A-Z0-9_]+\s*(?::\s*\w+\[\])?\s*=\s*\[',
+            content, re.MULTILINE
+        )
+        # Check if those mocks are rendered (used in JSX) while API import exists
+        if has_api_import and len(mock_arrays) >= 2:
+            # Check that the component has a useEffect or equivalent API call
+            has_api_call = bool(re.search(
+                r'useEffect|useQuery|useMutation|\.then\(|await\s+\w+Api\.',
+                content
+            ))
+            if not has_api_call:
+                issues.append(EvaluationIssue(
+                    severity="critical",
+                    line="Top-level mock data arrays",
+                    issue=(
+                        f"Component imports an API client but renders {len(mock_arrays)} hardcoded "
+                        "static arrays with no API call (no useEffect/useQuery/await apiCall). "
+                        "The component will always show mock data and never display real business data."
+                    ),
+                    fix=(
+                        "Remove top-level hardcoded data arrays. Add a useEffect (or useQuery) "
+                        "that calls the API client and stores results in useState. "
+                        "Render the state, not the static arrays. Show a loading spinner while fetching."
+                    ),
+                ))
+
     # ── package.json: commonly forgotten packages ─────────────────────────────
     if basename == "package.json":
         try:

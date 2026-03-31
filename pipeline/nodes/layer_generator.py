@@ -33,6 +33,7 @@ from app.api.services.retry import TruncatedOutputError, retry_async
 from config.model_config import router as model_router
 from config.settings import settings
 from memory.models import FileStatus, ForgeFile
+from intelligence.evaluator import _run_static_checks
 from pipeline.prompts.prompts import (
     CODEGEN_SYSTEM,
     EVALUATOR_SYSTEM,
@@ -125,8 +126,10 @@ async def generate_file_for_layer(
             logger.debug(f"[{run_id}] Template library lookup failed (non-blocking): {tl_exc}")
 
     # ── Shared context (same for all attempts) ────────────────────────────────
-    meta_rules = await _get_meta_rules()
-    knowledge_context = await _get_knowledge_context(file_path, purpose)
+    # Use full context assembler: KB patterns + meta-rules + knowledge chunks + live search
+    assembled = await _assemble_generation_context(file_path, purpose)
+    meta_rules = assembled["meta_rules"]
+    knowledge_context = assembled["knowledge_context"]
 
     # ── Complex files: skip retry loop, go straight to split generation ───────
     if _is_complex_file(file_path, purpose, estimated_lines):
@@ -1001,6 +1004,22 @@ async def _evaluate_file(file_path: str, purpose: str, content: str, run_id: str
     Returns dict with 'passed' bool and 'issues' list.
     Uses Haiku (settings.claude_fast_model) — never Sonnet — for cost efficiency.
     """
+    # Fast static checks — zero API cost, catch known deployment-breaking patterns
+    static_issues = _run_static_checks(file_path, content)
+    critical_static = [i for i in static_issues if i.severity == "critical"]
+    if critical_static:
+        logger.warning(
+            f"[{run_id}] Static check FAILED {file_path}: "
+            + "; ".join(i.issue[:80] for i in critical_static)
+        )
+        return {
+            "passed": False,
+            "issues": [
+                {"severity": i.severity, "line": i.line, "issue": i.issue, "fix": i.fix}
+                for i in static_issues
+            ],
+        }
+
     try:
         model = settings.claude_fast_model  # Haiku — ~20x cheaper than Sonnet
         prompt = build_evaluator_prompt(file_path, purpose, content)
@@ -1073,8 +1092,54 @@ def _trim_prompt_to_fit(prompt: str) -> str:
 # ── Knowledge context helpers ─────────────────────────────────────────────────
 
 
-async def _get_meta_rules() -> list[str]:
-    """Retrieve active meta-rules from DB."""
+async def _assemble_generation_context(file_path: str, purpose: str) -> dict:
+    """
+    Assemble the full intelligence context for a file generation call.
+
+    Uses context_assembler to pull from all four sources concurrently:
+      1. Meta-rules extracted from past build outcomes (self-improving rules)
+      2. Past build KB patterns (similar files we've generated before)
+      3. Domain knowledge chunks (Tavily-scraped best practices, indexed nightly)
+      4. Live search results (when purpose contains recency signals like "latest", "2025")
+
+    Returns dict with 'meta_rules' (list[str]) and 'knowledge_context' (str).
+    Falls back to legacy individual fetchers if assembler fails.
+    """
+    try:
+        from intelligence.context_assembler import assemble_context
+        query = f"{file_path} {purpose}"
+        ctx = await assemble_context(
+            query=query,
+            task_type="generation",
+            include_live_search=True,
+        )
+        # Combine KB patterns + domain knowledge + live results into a single context string
+        context_parts = []
+        if ctx.kb_chunks:
+            context_parts.append("PAST BUILD PATTERNS (similar files generated before):\n" + "\n\n".join(ctx.kb_chunks[:3]))
+        if ctx.knowledge_chunks:
+            context_parts.append("DOMAIN KNOWLEDGE (current best practices):\n" + "\n\n".join(ctx.knowledge_chunks[:4]))
+        if ctx.live_results:
+            context_parts.append("LIVE RESEARCH (retrieved now):\n" + "\n\n".join(ctx.live_results[:2]))
+
+        sources = ctx.sources_used
+        if sources:
+            logger.debug(f"Context assembled for {file_path}: sources={sources} rules={len(ctx.meta_rules)} chunks={len(ctx.kb_chunks)+len(ctx.knowledge_chunks)}")
+
+        return {
+            "meta_rules": ctx.meta_rules,
+            "knowledge_context": "\n\n".join(context_parts),
+        }
+    except Exception as exc:
+        logger.warning(f"Context assembler failed for {file_path} — falling back to legacy fetchers: {exc}")
+        # Fallback: legacy individual fetchers
+        meta_rules = await _get_meta_rules_legacy()
+        knowledge_context = await _get_knowledge_context_legacy(file_path, purpose)
+        return {"meta_rules": meta_rules, "knowledge_context": knowledge_context}
+
+
+async def _get_meta_rules_legacy() -> list[str]:
+    """Legacy meta-rules retrieval — used only if context_assembler fails."""
     try:
         from memory.database import get_session
         from memory.models import MetaRule
@@ -1088,17 +1153,17 @@ async def _get_meta_rules() -> list[str]:
             )
             return [r.rule_text for r in result.scalars().all()]
     except Exception as exc:
-        logger.warning(f"Meta-rules retrieval failed: {exc}")
+        logger.warning(f"Meta-rules legacy retrieval failed: {exc}")
         return []
 
 
-async def _get_knowledge_context(file_path: str, purpose: str) -> str:
-    """Get relevant knowledge base context for this file type."""
+async def _get_knowledge_context_legacy(file_path: str, purpose: str) -> str:
+    """Legacy knowledge retrieval — used only if context_assembler fails."""
     try:
         from knowledge.retriever import retrieve_relevant_chunks
         query = f"{file_path} {purpose}"
         chunks = await retrieve_relevant_chunks(query, top_k=4)
         return "\n\n".join(chunks) if chunks else ""
     except Exception as exc:
-        logger.warning(f"Knowledge context failed for {file_path}: {exc}")
+        logger.warning(f"Knowledge context legacy failed for {file_path}: {exc}")
         return ""

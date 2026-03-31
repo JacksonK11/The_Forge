@@ -388,6 +388,41 @@ class BuildQAScorer:
                              "uvicorn --port all use the same port number (typically 8000).",
                 ))
 
+        # 4. Frontend tab components: API client imported but never called (-4 pts each, cap 8)
+        #    Catches components that import an API module but only render hardcoded static arrays.
+        unwired = _check_unwired_tab_components(frontend_files)
+        if unwired:
+            score -= min(8, len(unwired) * 4)
+            for fp, reason in unwired[:2]:
+                issues.append(QAIssue(
+                    category="wiring", severity="critical", file_path=fp,
+                    description=reason,
+                    fix_hint=(
+                        "Add useEffect (or useQuery) that calls the imported API client. "
+                        "Store results in useState. Render that state — not hardcoded arrays. "
+                        "Show a loading spinner while fetching and an empty-state when the array "
+                        "is empty (e.g. no jobs yet)."
+                    ),
+                ))
+
+        # 5. CSS classes referenced in JSX/TSX must be defined in the CSS file (-3 pts)
+        css_issues = _check_css_class_coverage(files)
+        if css_issues:
+            score -= min(3, len(css_issues))
+            for fp, cls_name in css_issues[:3]:
+                issues.append(QAIssue(
+                    category="wiring", severity="warning", file_path=fp,
+                    description=(
+                        f"CSS class '{cls_name}' is referenced in JSX but has no rule in index.css "
+                        "or the component stylesheet. The element will render unstyled."
+                    ),
+                    fix_hint=(
+                        f"Add a CSS rule for '.{cls_name}' in index.css (or the relevant stylesheet). "
+                        "Pay particular attention to mobile bottom-nav classes — every className used "
+                        "in a mobile nav component must have a corresponding CSS rule."
+                    ),
+                ))
+
         return max(0, score), issues
 
     # ── Intelligence Layer (25 pts) ───────────────────────────────────────────
@@ -907,6 +942,100 @@ def _gather_fix_context(file_path: str, all_files: dict[str, str]) -> dict[str, 
             break
 
     return dict(list(context.items())[:5])
+
+
+def _check_unwired_tab_components(
+    frontend_files: dict[str, str],
+) -> list[tuple[str, str]]:
+    """
+    Detect frontend Tab/Page/View components that import an API client module
+    but never actually call it (i.e. they only render hardcoded static arrays).
+
+    Returns list of (file_path, description) pairs for unwired components.
+    """
+    # Regex to detect an import that looks like an API client
+    _API_IMPORT_RE = re.compile(
+        r'import\s+[^;]+from\s+["\'].*(?:api|Api|client|Client)["\']',
+        re.MULTILINE,
+    )
+    # Regex to detect actual API usage patterns
+    _API_CALL_RE = re.compile(
+        r'useEffect|useQuery|useMutation|\.then\(|await\s+\w+(?:Api|api|client|Client)\.',
+        re.MULTILINE,
+    )
+    # Top-level const arrays that look like hardcoded mock/fallback data
+    _MOCK_ARRAY_RE = re.compile(
+        r'^(?:export\s+)?const\s+[A-Z][A-Z0-9_]{2,}\s*(?::\s*[\w<>\[\]]+\s*)?=\s*\[',
+        re.MULTILINE,
+    )
+
+    issues: list[tuple[str, str]] = []
+    for fp, content in frontend_files.items():
+        basename = fp.split("/")[-1]
+        # Only check components that are likely data-displaying tabs/pages
+        if not any(x in basename for x in ("Tab", "Page", "View", "Dashboard")):
+            continue
+        has_api_import = bool(_API_IMPORT_RE.search(content))
+        if not has_api_import:
+            continue
+        has_api_call = bool(_API_CALL_RE.search(content))
+        mock_arrays = _MOCK_ARRAY_RE.findall(content)
+        if not has_api_call and len(mock_arrays) >= 2:
+            issues.append((
+                fp,
+                f"{basename} imports an API client but has no API call (no useEffect/useQuery). "
+                f"Found {len(mock_arrays)} hardcoded static array(s) — component will always show "
+                "mock data instead of real business data.",
+            ))
+    return issues
+
+
+def _check_css_class_coverage(files: dict[str, str]) -> list[tuple[str, str]]:
+    """
+    Detect CSS class names referenced in JSX/TSX className props that have no
+    corresponding rule in any CSS file. Focuses on custom class patterns
+    (hyphenated multi-word names) since Tailwind utility classes are always valid.
+
+    Returns list of (file_path, class_name) pairs for undefined classes.
+    """
+    # Collect all custom CSS class names used in className props
+    _CLASSNAME_RE = re.compile(r'className\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+
+    # Collect all CSS rule selectors from CSS files
+    css_content = "\n".join(
+        content for fp, content in files.items()
+        if fp.endswith(".css")
+    )
+    defined_classes: set[str] = set(
+        m.group(1) for m in re.finditer(r'\.([a-zA-Z][\w-]+)\s*\{', css_content)
+    )
+
+    issues: list[tuple[str, str]] = []
+    seen_missing: set[str] = set()
+
+    for fp, content in files.items():
+        if not fp.endswith((".tsx", ".jsx")):
+            continue
+        for m in _CLASSNAME_RE.finditer(content):
+            for cls in m.group(1).split():
+                cls = cls.strip()
+                # Skip Tailwind utility classes (they contain: or are single words like "flex")
+                # Focus on multi-segment hyphenated names that look like BEM/custom classes
+                if (
+                    ":" in cls             # Tailwind responsive prefix
+                    or cls.startswith("[") # Tailwind arbitrary value
+                    or "-" not in cls      # Single-word classes (flex, grid, etc.)
+                    or cls in seen_missing
+                ):
+                    continue
+                # Only flag classes that look like explicit custom names
+                # (start with a project-specific prefix or contain 3+ segments)
+                segments = cls.split("-")
+                if len(segments) >= 3 and cls not in defined_classes:
+                    seen_missing.add(cls)
+                    issues.append((fp, cls))
+
+    return issues[:8]  # Cap to avoid noise from Tailwind-heavy builds
 
 
 def _strip_fences(content: str) -> str:

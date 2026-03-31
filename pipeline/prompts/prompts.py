@@ -378,6 +378,40 @@ Every Layer 5 (web dashboard) file MUST include mobile-first PWA support:
 - All interactive elements: minimum 44px touch target (min-height: 44px, min-width: 44px)
 - Mobile containers: use position:fixed + inset:0 (NOT height:100vh + overflow:hidden which clips on iOS Safari)
 
+LAYER 5 ANTI-PATTERNS — NEVER DO THESE (they produce dashboards that show fake data forever):
+
+ANTI-PATTERN 1 — Hardcoded mock arrays rendered as real data:
+  WRONG: const MOCK_JOBS = [{id:1, name:"Dave"}, ...]; return <div>{MOCK_JOBS.map(...)}</div>
+  RIGHT: const [jobs, setJobs] = useState([]); useEffect(() => { jobsApi.list().then(setJobs); }, []);
+         return <div>{jobs.map(...)}</div>
+  RULE: Every data-displaying component MUST fetch from its API client. NEVER render a top-level
+        const array as real data. Hardcoded arrays are permitted only for UI config (tab labels,
+        column headers, static option lists) — never for data that will come from the database.
+
+ANTI-PATTERN 2 — TypeScript interface fields that don't match Pydantic response model fields:
+  WRONG: Backend returns `insights: str` but TypeScript interface declares `insights: string[]`
+  WRONG: Backend returns `user_ratings_total: int` but TypeScript uses `review_count: number`
+  RULE: Every TypeScript interface for an API response resource MUST have field names and types
+        that EXACTLY match the Pydantic response model. Check the previously generated backend
+        models and copy field names verbatim. If a backend field is `user_ratings_total: int | None`,
+        the TypeScript interface MUST have `user_ratings_total?: number | null` — NOT a renamed alias.
+        If the backend returns a string, the frontend interface must declare string, not string[].
+
+ANTI-PATTERN 3 — HTTP 204/205 endpoints with response bodies:
+  WRONG: @router.delete("/{id}", status_code=204) async def delete(id): ... return {"deleted": True}
+  RIGHT (option A): @router.delete("/{id}", status_code=200) async def delete(id) -> dict: return {"deleted": True, "id": str(id)}
+  RIGHT (option B): @router.delete("/{id}", status_code=204) async def delete(id) -> Response: return Response(status_code=204)
+  RULE: FastAPI raises AssertionError at startup (not at request time) if status_code=204/205 and
+        the function returns a body. This crashes the ENTIRE app — no requests are served at all.
+        Use status_code=200 + dict return, OR use status_code=204 + Response(status_code=204).
+
+ANTI-PATTERN 4 — CSS classes in JSX with no CSS rules:
+  WRONG: <nav className="my-mobile-nav"> ... </nav>  — where .my-mobile-nav has no CSS rule
+  RULE: Every className value used in JSX MUST have a corresponding CSS rule in index.css or the
+        component stylesheet. This is especially critical for mobile navigation bars — every class
+        used in a mobile bottom nav component (fixed positioning, safe-area-inset, active states)
+        MUST be defined before the component is considered complete.
+
 SETTINGS PAGE — SECRETS SETUP SECTION (mandatory in every generated Settings page):
 Every generated Settings/Admin page MUST include a "Secrets & API Keys" section that:
 - Lists every environment variable from the spec with: variable name, description (including where to get it), required/optional status
@@ -546,6 +580,9 @@ Check for ALL of the following issues:
 14. Duplicate declarations: flag any function name, class name, or const name that is declared more than once in the same file — esbuild throws "symbol already declared" and the build fails
 15. Missing --legacy-peer-deps: if this is a Dockerfile and it contains "npm install" without "--legacy-peer-deps", flag it — ESLint peer dep conflicts will break the build
 16. Wrong dashboard build command: if this is a Dockerfile and it contains "npm run build" or "tsc && vite build" for the dashboard, flag it — use "npx vite build" instead to avoid TypeScript type-check failures blocking the build
+17. FastAPI 204/205 with response body: if this is a Python routes file and any endpoint has status_code=204 or status_code=205 AND the function body returns a dict or any non-None value, flag it as CRITICAL — FastAPI asserts no body on these codes at startup, crashing the entire app before serving any request. Fix: either use status_code=200 + return dict, or use return Response(status_code=204) with no body.
+18. Frontend component renders hardcoded static arrays instead of API data: if this is a TSX/JSX component file that (a) imports an API client module AND (b) has two or more top-level const arrays with hardcoded object literals AND (c) has no useEffect/useQuery/await api call — flag it as CRITICAL. The component will always show mock data and never display real business data from the database.
+19. TypeScript interface fields don't match backend Pydantic model: if this is a TSX/TS file with TypeScript interfaces for API response objects, flag any field name that appears to be an alias or renamed version of a known backend field (e.g. `reviewCount` instead of `user_ratings_total`, `insights: string[]` where backend clearly returns a single string field). The frontend interface must use the exact field names returned by the backend.
 
 Respond with JSON only:
 {
