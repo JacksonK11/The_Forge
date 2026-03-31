@@ -307,7 +307,7 @@ async def _send_weekly_summary() -> None:
         else:
             text += f"\n✅ <b>No performance degradation this week</b>\n"
 
-        text += f"\n<a href='https://the-forge-dashboard-v15.fly.dev'>Open Dashboard →</a>"
+        text += f"\n<a href='https://the-forge-dashboard-v16.fly.dev'>Open Dashboard →</a>"
         await _send(text)
     except Exception as exc:
         logger.error(f"Weekly summary job failed: {exc}")
