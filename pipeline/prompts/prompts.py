@@ -66,6 +66,15 @@ Be thorough and precise. Every piece of information you extract will directly dr
 If the blueprint implies something that is not stated explicitly (e.g., a created_at timestamp on
 every table), include it. Fill in professional defaults for anything not specified.
 
+BUSINESS PROFILE RULE — mandatory before generating any business-specific code:
+The spec MUST capture exactly what this business does from the blueprint. Never substitute generic
+filler service descriptions. If the blueprint says "mobile car detailing", every AI prompt, market
+gap scan, and service description in the generated agent must say "mobile car detailing" — not
+"driveway cleaning", "pressure washing", or any other unrelated service. If the blueprint is
+ambiguous about the core service, add it to the validation questions list. The business_name,
+business_location, and service_type fields in the spec drive all AI prompt personalisation in
+the generated agent — wrong values here propagate incorrect context into every AI call.
+
 The generated codebase must follow this stack:
 - Backend: FastAPI + Python 3.12, fully async, Pydantic v2 models, loguru logging
 - Database: SQLAlchemy 2.0 + asyncpg + pgvector
@@ -286,7 +295,7 @@ ABSOLUTE RULES — violating any of these means the file will be rejected and re
 3. Every external API call is wrapped in try/except with loguru logger.error()
 4. Every database operation uses asyncpg through SQLAlchemy 2.0 async sessions
 5. Zero placeholder comments, zero TODO stubs, zero "implement this later" — every function is complete
-6. Zero hardcoded values — every URL, key, model name, and credential comes from environment/settings
+6. Zero hardcoded values — every URL, key, model name, credential, pricing threshold, follow-up delay, score cutoff, GST rate, service area boundary, phone number, email address, and business-specific number comes from environment variables or a settings/config model. The business operator must be able to change any operational parameter without editing Python or JSX source code.
 7. Zero exposed secrets — all sensitive values via os.environ or pydantic-settings
 8. Pydantic v2 models (use model_config = ConfigDict(...) not class Config)
 9. Loguru for all logging — logger.info(), logger.error(), logger.warning(), logger.debug()
@@ -298,6 +307,9 @@ LAYER 1 DATABASE RULES — mandatory for every generated database/model file:
 - database.py MUST strip sslmode from DATABASE_URL when using asyncpg. Fly.io managed Postgres ALWAYS injects ?sslmode=disable and asyncpg rejects it. Required code in _build_database_url(): url = re.sub(r'[?&]sslmode=[^&]*', '', url); url = re.sub(r'\?&', '?', url)
 - pgvector MUST be optional and non-fatal. Wrap CREATE EXTENSION vector in try/except that logs warning but does NOT raise. If pgvector unavailable, store embeddings as JSONB and compute cosine similarity in Python. Never let pgvector absence prevent table creation.
 - database.py connect_args MUST include ssl="disable" for Fly.io: connect_args={"ssl": "disable"}
+- DUPLICATE INDEX PREVENTION — NEVER combine column-level index=True with a same-named Index() in __table_args__. SQLAlchemy auto-names a column-level index as ix_{tablename}_{colname}. If __table_args__ also contains Index("ix_{tablename}_{colname}", ...), create_all() throws DuplicateTableError and silently creates ZERO tables — the app starts but every query returns "relation does not exist". Rule: use EITHER column-level index=True OR an explicit __table_args__ Index() for any given column, never both.
+- RAW SQL TABLE NAME SAFETY — any file using text() raw SQL MUST reference table names via a comment citing the model class: e.g. # MyModel.__tablename__ == "my_tables". Table names must exactly match the model's __tablename__ string (check singular vs plural). Prefer ORM select(Model) over raw SQL. If raw SQL is unavoidable, use a module-level constant TABLE_NAME = MyModel.__tablename__ and reference it in the query.
+- DB HEALTH IN /health ENDPOINT — every generated main.py /health endpoint MUST query information_schema.tables to count public tables and include {"db_tables": N} in the response. If N == 0, return HTTP 503 with {"status": "degraded", "reason": "database has zero tables — create_all may have failed"}. This catches the silent duplicate-index create_all failure immediately on deploy.
 
 LAYER 2 INFRASTRUCTURE RULES — mandatory for requirements.txt:
 - requirements.txt MUST include every package actually imported in any .py file. Never omit: asyncpg, pgvector, sqlalchemy[asyncpg], fastapi, uvicorn[standard], pydantic, pydantic-settings, loguru, anthropic, openai, httpx, redis, rq, apscheduler, python-dotenv, alembic, pillow (if images used).
@@ -312,6 +324,9 @@ Every generated main.py MUST include a _validate_critical_secrets() function cal
 - Logs "All critical secrets validated ✓" on success
 This ensures the app fails immediately with a clear error instead of crashing mid-request when a secret is missing.
 
+LAYER 3 INTEGRATION STATUS ENDPOINTS — mandatory for every generated FastAPI backend:
+Every external API integration that is enabled via an env var MUST have a status check. Generate a GET /api/status endpoint that returns a JSON object with one key per integration: {"anthropic": {"configured": true/false}, "openai": {"configured": true/false}, "tavily": {"configured": true/false}, "telegram": {"configured": true/false}, ...}. "configured" is true if the env var is non-empty. The Settings page calls this endpoint to show green/red connection indicators — without it, every API key field shows as disconnected even after setting it.
+
 LAYER 3 ADMIN ENDPOINT — mandatory for every generated FastAPI backend:
 Every generated API MUST include a POST /admin/set-secrets endpoint that:
 - Accepts {"secrets": {"KEY": "value", ...}} body (Bearer token auth required)
@@ -321,6 +336,9 @@ Every generated API MUST include a POST /admin/set-secrets endpoint that:
 - This endpoint is what the Settings page "Apply Secrets" button calls — no terminal needed
 - Full error handling, loguru logging, async httpx client
 
+VERSION SINGLE SOURCE OF TRUTH — mandatory for every generated agent:
+The version string (e.g. "v1", "V1") MUST be defined in exactly ONE place: the fly.toml app name (e.g. app = "my-agent-api"). Every other version reference derives from it: the FLY_APP_NAME env var in fly.toml MUST exactly match the app = value (e.g. FLY_APP_NAME = "my-agent-api"). The dashboard title in index.html, App.tsx/App.jsx badge, and README deployment URLs must all reflect the same version. If any of these drift (e.g. fly.toml says v1 but FLY_APP_NAME says v2), the /admin/set-secrets endpoint will silently set secrets on the wrong Fly app — a hard-to-debug production failure.
+
 FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
 - fly.toml API services MUST include min_machines_running = 1 in the [http_service] block — prevents Fly from creating 2 machines for HA (doubles cost)
 - fly.toml worker services have NO [http_service] block — they are background processes, no HTTP listener needed
@@ -328,9 +346,10 @@ FLY.IO COST RULES — mandatory for every Layer 6 deployment file:
 - NEVER generate a separate scheduler fly.toml or Fly.io app — APScheduler runs inside the worker process
 - NEVER generate a separate Fly.io Postgres app — all agents share the existing managed Postgres app "the-forge-db". Each agent gets its own database named {agent_slug}_db on that shared instance. Use flyctl postgres attach to connect.
 - Dockerfile.worker MUST be a separate file from Dockerfile.api with CMD ["python", "-m", "rq", "worker", "--with-scheduler", "QUEUE_NAME"] or the equivalent worker entrypoint. NEVER use uvicorn as the CMD in a worker Dockerfile — the worker runs RQ jobs, not an HTTP server. The queue name MUST match the queue name used in main.py when creating the Queue() object.
+- FLY_APP_NAME env var in [env] section MUST exactly match the app = name at the top of fly.toml. These are used by the /admin/set-secrets endpoint to call the Fly Machines API — a mismatch silently sets secrets on the wrong app with no error.
 - GitHub Actions deploy steps MUST include --ha=false flag: flyctl deploy --app NAME --config FILE --ha=false
 - GitHub Actions deploy steps MUST create the Fly app before deploying to handle first deploy (app doesn't exist yet): run "flyctl apps create APP_NAME --org personal 2>/dev/null || true" before every flyctl deploy step
-- GitHub Actions MUST include a post-deploy health check step after each flyctl deploy: poll https://APP_NAME.fly.dev/health every 5 seconds for up to 60 seconds using a shell loop, fail the workflow if health check never passes
+- GitHub Actions MUST include a post-deploy health check step after each flyctl deploy: poll https://APP_NAME.fly.dev/health every 5 seconds for up to 60 seconds using a shell loop, fail the workflow if health check never passes. The health check MUST validate {"db_tables": N} in the /health response — if N == 0, the deploy must fail with exit 1 and message "FATAL: DB has zero tables — check for duplicate index names in models.py"
 - Generated FLY_SECRETS.txt MUST include an explicit ordering note: "Set ALL secrets BEFORE running flyctl deploy for the first time. The app will crash on startup if critical secrets are missing."
 - Generated deploy.yml MUST include a "Verify secrets" step before deploying: flyctl secrets list --app APP_NAME to confirm secrets are set (non-blocking — just informational output)
 
@@ -405,6 +424,16 @@ ANTI-PATTERN 3 — HTTP 204/205 endpoints with response bodies:
         the function returns a body. This crashes the ENTIRE app — no requests are served at all.
         Use status_code=200 + dict return, OR use status_code=204 + Response(status_code=204).
 
+ANTI-PATTERN 5 — Frontend API calls missing /api/ prefix:
+  WRONG: axios.get("/intelligence/kpis"), fetch("/gaps"), client.post("/trigger-learning")
+  RIGHT: axios.get("/api/intelligence/kpis"), fetch("/api/gaps"), client.post("/api/trigger-learning")
+  RULE: ALL FastAPI routers MUST be registered with prefix="/api" in main.py (e.g. app.include_router(router, prefix="/api")). ALL frontend API client calls MUST use the /api/ prefix. The Vite dev proxy in vite.config.js MUST proxy "/api" → backend. A missing /api/ prefix causes 404s from the nginx static file server — the frontend gets an HTML error page back instead of JSON, the catch block fires, and every feature appears broken even though the backend is healthy.
+
+ANTI-PATTERN 6 — Business-specific hardcoded numbers and filler service descriptions:
+  WRONG: Generating "driveway cleaning, pressure washing, sealant" for a mobile car detailing business.
+  WRONG: Hardcoding threshold values like score < 40, 14-day follow-up, $150 per vehicle in Python code.
+  RULE: Every AI prompt inside the generated agent MUST describe the business accurately using the business_name, business_location, and service_type from the parsed spec — never generic filler. Numbers that will change (pricing thresholds, follow-up delays, service area radius, GST rate) MUST be env vars or config constants, never inline literals. The business operator must be able to tune them without code changes.
+
 ANTI-PATTERN 4 — CSS classes in JSX with no CSS rules:
   WRONG: <nav className="my-mobile-nav"> ... </nav>  — where .my-mobile-nav has no CSS rule
   RULE: Every className value used in JSX MUST have a corresponding CSS rule in index.css or the
@@ -421,6 +450,19 @@ Every generated Settings/Admin page MUST include a "Secrets & API Keys" section 
 - Shows a ✓ indicator on each field once filled
 - Values are never stored in the frontend — sent directly to the backend endpoint
 - This is the ONLY way the operator sets API keys after deploy — no terminal commands needed
+
+GENERATED AGENT AI CALL RULES — when generating Python code that makes Claude API calls:
+Every system prompt string you write into the generated agent's code MUST be specific to the
+business and service type from the spec — never generic. If the spec describes a mobile car
+detailing business, the system prompt must say "mobile car detailing" and reference the operator's
+real suburb and service area. If the agent does outreach, the system prompts must describe exactly
+what the business offers so Claude writes accurate copy. If the agent does research, the system
+prompt must focus the research lens on the exact market and service category.
+When generating marketing or outreach AI calls: apply persuasion principles — address pain points,
+use social proof, create urgency, match the formality level to the audience.
+When generating UI/UX code: apply progressive disclosure, clear visual hierarchy, 44px touch
+targets, mobile-first layout, and avoid cognitive overload. Every interactive element must have
+clear affordance and visible feedback states.
 
 Generate only the file content. No explanations. No markdown code fences. Just the raw file."""
 
@@ -452,6 +494,7 @@ def build_codegen_prompt(
     previous_files: dict[str, str],
     meta_rules: list[str] | None = None,
     knowledge_context: str | None = None,
+    skills_context: str | None = None,
 ) -> str:
     # CRITICAL: Use string concatenation throughout — NEVER str.format().
     # previous_files_context, purpose, knowledge_context can all contain {, }, \, etc.
@@ -475,6 +518,9 @@ def build_codegen_prompt(
         previous_files_context,
         "",
     ]
+
+    if skills_context:
+        parts += [skills_context, ""]
 
     if meta_rules:
         rules_text = "\n".join(f"- {r}" for r in meta_rules)

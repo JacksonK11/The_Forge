@@ -40,6 +40,7 @@ from pipeline.prompts.prompts import (
     build_codegen_prompt,
     build_evaluator_prompt,
 )
+from pipeline.skills.skill_selector import build_skills_section
 
 client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
@@ -184,6 +185,7 @@ async def generate_file_for_layer(
                 else ""
             )
 
+            skills_context = build_skills_section(spec, layer, file_path)
             prompt = build_codegen_prompt(
                 spec=spec,
                 file_path=file_path,
@@ -192,6 +194,7 @@ async def generate_file_for_layer(
                 previous_files=generated_files,
                 meta_rules=meta_rules,
                 knowledge_context=knowledge_context,
+                skills_context=skills_context,
             )
 
             try:
@@ -375,6 +378,7 @@ async def _generate_file_split(
     if dependency_manifest:
         purpose_prefix += f"{dependency_manifest}\n\nNow generate the following file...\n\n"
 
+    skills_context = build_skills_section(spec, layer, file_path)
     base_prompt = build_codegen_prompt(
         spec=spec,
         file_path=file_path,
@@ -383,6 +387,7 @@ async def _generate_file_split(
         previous_files=generated_files,
         meta_rules=meta_rules,
         knowledge_context=knowledge_context,
+        skills_context=skills_context,
     )
 
     # ── Part 1: structure + first half ────────────────────────────────────────
