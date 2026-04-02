@@ -93,6 +93,9 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "project-development",
         "setup-code-formating",
         "cause-and-effect",
+        "fly-io-patterns",               # Fly.io deployment, health checks, cost control
+        "redis-rq-patterns",             # Worker setup, priority queues, retry logic
+        "async-python-advanced",         # Async patterns, RateLimiter, graceful shutdown
     ],
 
     # ── Layer 3: Backend API ──────────────────────────────────────────────────
@@ -117,6 +120,9 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "status",                    # Status endpoint patterns
         "requesting-code-review",    # Review before considering complete
         "review-local-changes",      # Review changes thoroughly
+        "webhook-patterns",          # HMAC verification, idempotency, async processing
+        "websocket-realtime",        # FastAPI WS endpoint, connection manager
+        "async-python-advanced",     # Async patterns for API handlers
     ],
 
     # ── Layer 4: Worker / Agent Logic ─────────────────────────────────────────
@@ -182,6 +188,16 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "writing-plans",             # Write comprehensive implementation plans
         "add-task",                  # Task management in agent workflows
         "load-issues",               # Load and process issue queues
+        # Custom stack patterns (Layer 4 workers use all of these)
+        "redis-rq-patterns",         # RQ worker design, priority queues, dead letter
+        "async-python-advanced",     # RateLimiter, TaskGroup, backpressure, graceful shutdown
+        "webhook-patterns",          # HMAC verification, idempotency, retry-safe handlers
+        "websocket-realtime",        # WebSocket manager, Alpaca streaming, reconnection
+        "rss-aggregation-patterns",  # Feed fetching, dedup, relevance scoring
+        "pgvector-patterns",         # Vector similarity search, HNSW index, hybrid search
+        "cross-agent-aggregation",   # Shared output schema, Redis pub/sub bus
+        "trend-detection-patterns",  # CUSUM, z-score, momentum scoring
+        "telegram-notifications",    # TelegramNotifier, rate limiting, formatting
     ],
 
     # ── Layer 5: Web Dashboard ────────────────────────────────────────────────
@@ -301,6 +317,8 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "market-research-reports",
         "competitor-alternatives",
         "smart-explore",
+        "rss-aggregation-patterns",      # Feed fetching, deduplication, relevance scoring
+        "trend-detection-patterns",      # CUSUM, z-score anomaly, momentum scoring
     ],
     "email": [
         "cold-email",
@@ -327,6 +345,7 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "statistical-analysis",
         "ab-test-setup",
         "exploratory-data-analysis",
+        "trend-detection-patterns",      # CUSUM, z-score, momentum scoring
     ],
     "referral": [
         "referral-program",
@@ -341,6 +360,7 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "competitor-alternatives",
         "seo-audit",
         "market-research-reports",
+        "competitive-intelligence",      # Google Places discovery, review mining, pricing
     ],
     "content": [
         "copywriting",
@@ -355,6 +375,12 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "evaluation",
         "cause-and-effect",
         "what-if-oracle",
+        "technical-analysis-patterns",   # TA-Lib indicators, signal confluence
+        "risk-management-trading",        # Position sizing, RiskGuard, ATR stops
+        "backtesting-methodology",        # Walk-forward, Monte Carlo, 6-gate validation
+        "ftmo-prop-firm-rules",           # FTMO $100k account hard limits
+        "forex-session-patterns",         # Session timing, killzones, spread awareness
+        "websocket-realtime",             # Alpaca streaming, live data feed
     ],
     "design": [
         "ui-ux-pro-max",
@@ -380,6 +406,11 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "copywriting",
         "referral-program",
         "churn-prevention",
+        "twilio-sms-patterns",           # Job confirmation SMS, follow-up
+        "google-calendar-api",           # Booking creation, availability checking
+        "pdf-invoice-gst",               # GST-compliant tax invoices
+        "google-places-api",             # Competitor review mining, suburb coverage
+        "competitive-intelligence",      # Local competitor tracking
     ],
     "construction": [
         "cold-email",
@@ -388,12 +419,19 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "sales-enablement",
         "copywriting",
         "email-sequence",
+        "twilio-sms-patterns",           # Lead follow-up SMS
+        "google-calendar-api",           # Site visit booking
+        "pdf-invoice-gst",               # GST-compliant quotes and invoices
+        "playwright-scraping",           # NSW Planning Portal DA monitoring
+        "competitive-intelligence",      # Competitor discovery and pricing
     ],
     "booking": [
         "customer-research",
         "marketing-psychology",
         "email-sequence",
         "onboarding-cro",
+        "google-calendar-api",           # FreeBusy checks, event creation, async wrappers
+        "twilio-sms-patterns",           # Booking confirmation SMS, ACMA compliance
     ],
     "review": [
         "marketing-psychology",
@@ -422,6 +460,9 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "tool-design",
         "context-fundamentals",
         "dispatching-parallel-agents",
+        "cross-agent-aggregation",       # Shared output schema, Redis pub/sub coordination
+        "async-python-advanced",         # RateLimiter, TaskGroup, graceful shutdown
+        "redis-rq-patterns",             # Priority queues, retry logic, dead letter
     ],
     "intelligence": [
         "deep-research",
@@ -429,6 +470,11 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "evaluation",
         "memory-systems",
         "context-engineering",
+        "rss-aggregation-patterns",      # Multi-source feed aggregation
+        "trend-detection-patterns",      # Statistical trend and anomaly detection
+        "competitive-intelligence",      # Competitor discovery and review analysis
+        "executive-briefing-style",      # BLUF briefings, signal-to-noise filtering
+        "cross-agent-aggregation",       # Normalised agent output bus
     ],
     "finance": [
         "statistical-analysis",
@@ -456,6 +502,7 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "markdown-mermaid-writing",
         "timeline-report",
         "write-concisely",
+        "executive-briefing-style",      # BLUF structure, action items, signal filtering
     ],
     "presentation": [
         "pptx",
@@ -481,6 +528,142 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "marketing-psychology",
         "sales-enablement",
         "revops",
+    ],
+
+    # ── Custom stack skills ───────────────────────────────────────────────────
+    "telegram": [
+        "telegram-notifications",        # TelegramNotifier, rate limiting, chunking
+    ],
+    "notification": [
+        "telegram-notifications",
+        "twilio-sms-patterns",
+    ],
+    "sms": [
+        "twilio-sms-patterns",           # ACMA compliant, opt-out, async send
+    ],
+    "twilio": [
+        "twilio-sms-patterns",
+    ],
+    "calendar": [
+        "google-calendar-api",           # Service account, FreeBusy, event creation
+    ],
+    "invoice": [
+        "pdf-invoice-gst",               # ATO compliant, ReportLab, Decimal GST
+    ],
+    "gst": [
+        "pdf-invoice-gst",
+    ],
+    "webhook": [
+        "webhook-patterns",              # HMAC verify, idempotency, async processing
+    ],
+    "scraping": [
+        "playwright-scraping",           # Anti-detection, polite rate limiting
+    ],
+    "places": [
+        "google-places-api",             # Competitor discovery, review aggregation
+    ],
+    "forex": [
+        "forex-session-patterns",        # Session timing, killzones, spread awareness
+        "technical-analysis-patterns",   # TA-Lib indicators, signal confluence
+        "risk-management-trading",       # Position sizing, RiskGuard
+        "ftmo-prop-firm-rules",          # FTMO hard limits
+        "backtesting-methodology",       # Walk-forward, Monte Carlo, 6-gate
+    ],
+    "ftmo": [
+        "ftmo-prop-firm-rules",          # FTMO $100k account compliance guard
+        "backtesting-methodology",
+        "risk-management-trading",
+    ],
+    "backtesting": [
+        "backtesting-methodology",       # Walk-forward, Optuna, Monte Carlo
+        "risk-management-trading",
+    ],
+    "prop firm": [
+        "ftmo-prop-firm-rules",
+        "risk-management-trading",
+        "backtesting-methodology",
+    ],
+    "strategy": [
+        "backtesting-methodology",
+        "technical-analysis-patterns",
+        "risk-management-trading",
+    ],
+    "vector": [
+        "pgvector-patterns",             # HNSW index, cosine similarity, hybrid search
+    ],
+    "embedding": [
+        "pgvector-patterns",
+    ],
+    "realtime": [
+        "websocket-realtime",            # FastAPI WS manager, Alpaca streaming
+    ],
+    "websocket": [
+        "websocket-realtime",
+    ],
+    "streaming": [
+        "websocket-realtime",
+        "rss-aggregation-patterns",
+    ],
+    "news": [
+        "rss-aggregation-patterns",      # Feed fetching, dedup, relevance scoring
+        "trend-detection-patterns",      # CUSUM, z-score, keyword momentum
+    ],
+    "feed": [
+        "rss-aggregation-patterns",
+    ],
+    "rss": [
+        "rss-aggregation-patterns",
+    ],
+    "briefing": [
+        "executive-briefing-style",      # BLUF, daily brief, action items
+        "rss-aggregation-patterns",
+    ],
+    "digest": [
+        "executive-briefing-style",
+        "rss-aggregation-patterns",
+    ],
+    "trend": [
+        "trend-detection-patterns",      # CUSUM, z-score, keyword momentum
+        "rss-aggregation-patterns",
+    ],
+    "anomaly": [
+        "trend-detection-patterns",
+    ],
+    "queue": [
+        "redis-rq-patterns",             # Priority queues, retry, dead letter
+        "async-python-advanced",
+    ],
+    "worker": [
+        "redis-rq-patterns",
+        "async-python-advanced",
+    ],
+    "redis": [
+        "redis-rq-patterns",
+    ],
+    "deploy": [
+        "fly-io-patterns",               # fly.toml, health checks, secrets, cost
+    ],
+    "fly": [
+        "fly-io-patterns",
+    ],
+    "async": [
+        "async-python-advanced",         # RateLimiter, TaskGroup, backpressure
+    ],
+    "concurrent": [
+        "async-python-advanced",
+    ],
+    "signal": [
+        "technical-analysis-patterns",
+        "risk-management-trading",
+        "cross-agent-aggregation",
+    ],
+    "aggregat": [
+        "cross-agent-aggregation",       # Normalised output schema, pub/sub
+        "rss-aggregation-patterns",
+    ],
+    "multi-agent": [
+        "cross-agent-aggregation",
+        "async-python-advanced",
     ],
 }
 
@@ -532,7 +715,41 @@ def _path_skills(file_path: str) -> list[str]:
     if any(x in fp for x in ["prompt", "system_prompt", "system prompt"]):
         extras += ["prompt-engineering", "apply-anthropic-skill-best-practices"]
     if any(x in fp for x in ["deploy", "fly.toml", "dockerfile", "github/workflows"]):
-        extras += ["owasp-security", "verification-before-completion"]
+        extras += ["owasp-security", "verification-before-completion", "fly-io-patterns"]
+    if any(x in fp for x in ["telegram", "bot", "notif"]):
+        extras += ["telegram-notifications"]
+    if any(x in fp for x in ["sms", "twilio"]):
+        extras += ["twilio-sms-patterns"]
+    if any(x in fp for x in ["calendar", "booking", "availability"]):
+        extras += ["google-calendar-api"]
+    if any(x in fp for x in ["invoice", "invoice_pdf", "gst", "tax"]):
+        extras += ["pdf-invoice-gst"]
+    if any(x in fp for x in ["webhook", "tradingview", "stripe", "hmac"]):
+        extras += ["webhook-patterns"]
+    if any(x in fp for x in ["websocket", "ws_manager", "realtime", "stream"]):
+        extras += ["websocket-realtime"]
+    if any(x in fp for x in ["rss", "feed", "aggregat"]):
+        extras += ["rss-aggregation-patterns"]
+    if any(x in fp for x in ["pgvector", "vector", "embed", "retriev", "similar"]):
+        extras += ["pgvector-patterns"]
+    if any(x in fp for x in ["scrapl", "playwright", "scraping", "spider", "da_monitor"]):
+        extras += ["playwright-scraping"]
+    if any(x in fp for x in ["places", "google_place", "competitor_discover"]):
+        extras += ["google-places-api", "competitive-intelligence"]
+    if any(x in fp for x in ["trading", "signal", "strategy", "backtest"]):
+        extras += ["technical-analysis-patterns", "risk-management-trading"]
+    if any(x in fp for x in ["ftmo", "prop_firm", "compliance"]):
+        extras += ["ftmo-prop-firm-rules", "risk-management-trading"]
+    if any(x in fp for x in ["session", "forex_session", "killzone"]):
+        extras += ["forex-session-patterns"]
+    if any(x in fp for x in ["briefing", "digest", "brief", "intel_report"]):
+        extras += ["executive-briefing-style"]
+    if any(x in fp for x in ["trend", "anomaly", "cusum", "momentum"]):
+        extras += ["trend-detection-patterns"]
+    if any(x in fp for x in ["aggreg", "cross_agent", "output_bus"]):
+        extras += ["cross-agent-aggregation"]
+    if any(x in fp for x in ["worker", "rq_worker", "queue", "pipeline"]):
+        extras += ["redis-rq-patterns", "async-python-advanced"]
     return extras
 
 
