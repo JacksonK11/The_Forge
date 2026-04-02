@@ -274,6 +274,208 @@ LAYER_SKILLS: dict[int, list[str]] = {
 # For a detailing + lead + outreach agent, ALL three keyword lists apply.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# KEYWORD ALIASES
+# Maps alternate phrasing → canonical keyword in KEYWORD_SKILLS.
+# This covers synonyms, industry jargon, and common blueprint phrasings that
+# share no characters with the canonical keyword.
+#
+# The matching loop expands aliases BEFORE checking KEYWORD_SKILLS, so writing
+# "appointment scheduling" in a blueprint automatically loads all "booking" skills,
+# "renovation" loads all "construction" skills, etc.
+#
+# Note: single-root substring matching already works for most cases —
+# "lead" catches "leads", "lead gen", "lead generation", "find leads".
+# Aliases are only needed where there is NO shared substring.
+# ─────────────────────────────────────────────────────────────────────────────
+
+KEYWORD_ALIASES: dict[str, str] = {
+    # Lead generation synonyms
+    "prospect":          "lead",
+    "prospecting":       "lead",
+    "find clients":      "lead",
+    "client acquisition":"lead",
+    "new clients":       "lead",
+    "pipeline":          "lead",
+    "canvass":           "outreach",
+    "canvassing":        "outreach",
+    "door knock":        "outreach",
+    "cold call":         "outreach",
+    "cold calling":      "outreach",
+
+    # Bookings / appointments
+    "appointment":       "booking",
+    "appointments":      "booking",
+    "schedule":          "booking",
+    "scheduling":        "booking",
+    "book jobs":         "booking",
+    "job booking":       "booking",
+    "site visit":        "booking",
+    "site inspection":   "booking",
+
+    # Reviews / reputation
+    "testimonial":       "review",
+    "testimonials":      "review",
+    "google review":     "review",
+    "star rating":       "review",
+    "5 star":            "review",
+    "google maps":       "review",
+    "trust":             "reputation",
+
+    # Referrals
+    "word of mouth":     "referral",
+    "recommend":         "referral",
+    "neighbour":         "referral",
+    "neighborhood":      "referral",
+    "nearby":            "referral",
+    "word-of-mouth":     "referral",
+
+    # Marketing / advertising
+    "advertis":          "marketing",
+    "promotion":         "marketing",
+    "promote":           "marketing",
+    "brand awareness":   "marketing",
+    "acquire customer":  "marketing",
+
+    # Social media
+    "instagram":         "social",
+    "facebook":          "social",
+    "tiktok":            "social",
+    "linkedin":          "social",
+    "twitter":           "social",
+    "x.com":             "social",
+    "post content":      "social",
+    "social media":      "social",
+
+    # Trades / construction synonyms
+    "renovation":        "construction",
+    "renovations":       "construction",
+    "renovate":          "construction",
+    "builder":           "construction",
+    "tradie":            "construction",
+    "tradesperson":      "construction",
+    "painter":           "construction",
+    "plumber":           "construction",
+    "electrician":       "construction",
+    "da application":    "construction",
+    "development application": "construction",
+    "planning portal":   "construction",
+    "permit":            "construction",
+
+    # Detailing / cleaning synonyms
+    "car wash":          "detailing",
+    "car detail":        "detailing",
+    "driveway":          "detailing",
+    "pressure wash":     "detailing",
+    "steam clean":       "detailing",
+    "vehicle":           "detailing",
+    "mobile detailing":  "detailing",
+
+    # Property / real estate synonyms
+    "real estate":       "property",
+    "housing":           "property",
+    "property manager":  "property management",
+    "strata":            "property management",
+    "tenancy":           "property management",
+    "rental":            "property management",
+
+    # Analytics / metrics synonyms
+    "metric":            "analytics",
+    "metrics":           "analytics",
+    "kpi":               "analytics",
+    "performance track": "analytics",
+    "conversion rate":   "analytics",
+    "measure":           "analytics",
+
+    # Competitor / market synonyms
+    "competition":       "competitor",
+    "competitive":       "competitor",
+    "rival":             "competitor",
+    "market position":   "competitor",
+    "market share":      "competitor",
+
+    # Intelligence / monitoring synonyms
+    "monitor":           "intelligence",
+    "monitoring":        "intelligence",
+    "surveillance":      "intelligence",
+    "watch":             "intelligence",
+    "insight":           "intelligence",
+    "insights":          "intelligence",
+    "scan":              "intelligence",
+
+    # Revenue / sales synonyms
+    "sales":             "revenue",
+    "upsell":            "revenue",
+    "conversion":        "revenue",
+    "close deals":       "revenue",
+    "increase revenue":  "revenue",
+    "grow revenue":      "revenue",
+
+    # Invoicing / quoting synonyms
+    "quote":             "invoice",
+    "quoting":           "invoice",
+    "billing":           "invoice",
+    "invoice customer":  "invoice",
+    "payment":           "invoice",
+
+    # SMS / messaging synonyms
+    "text message":      "sms",
+    "text msg":          "sms",
+    "messaging":         "sms",
+    "follow up message": "sms",
+
+    # Notification synonyms
+    "alert":             "notification",
+    "alerts":            "notification",
+    "notify":            "notification",
+    "push notification": "notification",
+
+    # Automation synonyms
+    "automate":          "automation",
+    "automated":         "automation",
+    "workflow":          "automation",
+    "auto-":             "automation",
+
+    # Report / briefing synonyms
+    "summary":           "report",
+    "daily brief":       "briefing",
+    "weekly brief":      "briefing",
+    "morning brief":     "briefing",
+    "executive summary": "briefing",
+    "digest":            "briefing",
+
+    # Trading / finance synonyms
+    "trade":             "trading",
+    "trades":            "trading",
+    "forex":             "trading",
+    "stocks":            "trading",
+    "equities":          "trading",
+    "futures":           "trading",
+    "prop firm":         "ftmo",
+    "prop trading":      "trading",
+
+    # Data / document synonyms
+    "spreadsheet":       "data",
+    "database":          "data",
+    "word document":     "document",
+    "word doc":          "document",
+
+    # Scraping synonyms
+    "scrape":            "scraping",
+    "crawl":             "scraping",
+    "crawling":          "scraping",
+    "web scrape":        "scraping",
+    "extract data":      "scraping",
+
+    # Geographic synonyms
+    "suburb":            "geo",
+    "postcode":          "geo",
+    "geographic":        "geo",
+    "location":          "geo",
+    "address":           "geo",
+    "local area":        "geo",
+}
+
 KEYWORD_SKILLS: dict[str, list[str]] = {
     "marketing": [
         "marketing-psychology",
@@ -888,10 +1090,22 @@ def select_skills(
         spec.get("agent_name", ""),
         spec.get("business_name", ""),
         " ".join(spec.get("external_apis", [])),
+        " ".join(spec.get("features", [])) if isinstance(spec.get("features"), list) else spec.get("features", ""),
+        " ".join(spec.get("modules", [])) if isinstance(spec.get("modules"), list) else spec.get("modules", ""),
     ]).lower()
 
+    # Expand aliases: if any alias phrase appears in the spec, treat it as
+    # its canonical keyword. This means "appointment scheduling" triggers all
+    # "booking" skills, "renovation" triggers all "construction" skills, etc.
+    expanded_keywords: set[str] = set()
+    for alias, canonical in KEYWORD_ALIASES.items():
+        if alias in search_text:
+            expanded_keywords.add(canonical)
+            logger.debug(f"Alias '{alias}' → canonical keyword '{canonical}'")
+
+    # Check both original keyword matches AND alias-expanded keywords
     for keyword, skills in KEYWORD_SKILLS.items():
-        if keyword in search_text:
+        if keyword in search_text or keyword in expanded_keywords:
             for skill in skills:
                 add(skill)
 
@@ -940,6 +1154,8 @@ def _select_embed_skills(spec: dict) -> list[tuple[str, str]]:
         spec.get("service_type", ""),
         spec.get("agent_name", ""),
         spec.get("business_name", ""),
+        " ".join(spec.get("features", [])) if isinstance(spec.get("features"), list) else spec.get("features", ""),
+        " ".join(spec.get("modules", [])) if isinstance(spec.get("modules"), list) else spec.get("modules", ""),
     ]).lower()
 
     selected: list[str] = []
@@ -950,8 +1166,14 @@ def _select_embed_skills(spec: dict) -> list[tuple[str, str]]:
             seen.add(skill_name)
             selected.append(skill_name)
 
+    # Expand aliases before keyword matching (same logic as select_skills)
+    expanded_keywords: set[str] = set()
+    for alias, canonical in KEYWORD_ALIASES.items():
+        if alias in search_text:
+            expanded_keywords.add(canonical)
+
     for keyword, skills in KEYWORD_SKILLS.items():
-        if keyword in search_text:
+        if keyword in search_text or keyword in expanded_keywords:
             for skill in skills:
                 add(skill)
 
