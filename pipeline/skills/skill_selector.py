@@ -58,34 +58,88 @@ FORGE_UNIVERSAL_SKILLS: list[str] = [
     "claude-api",                            # Claude API patterns and SDK usage
     "test-prompt",                           # Validate prompts before using
 
-    # ── Reasoning & thinking (every file benefits from deep reasoning) ────────
-    "thought-based-reasoning",       # Chain-of-thought for every decision
-    "tree-of-thoughts",              # Explore multiple approaches before committing
+    # ── Deep analysis before generation (understand before building) ──────────
+    "analyse",                       # Auto-selects Kaizen methodology: Gemba Walk,
+                                     # Value Stream Mapping, Muda waste analysis.
+                                     # 20% efficiency improvement on every file.
+    "analyse-problem",               # A3 structured problem solving — background,
+                                     # current state, root cause, countermeasures.
+                                     # Prevents solving the wrong problem entirely.
+    "smart-explore",                 # AST-based structural code search — 4-8x token
+                                     # savings vs full reads. Find exactly what's
+                                     # needed without reading entire files.
+
+    # ── Multi-perspective generation (catch blindspots before they ship) ──────
+    "brainstorm",                    # 6-approach exploration before committing.
+                                     # Prevents premature lock-in on first idea.
+    "do-competitively",              # Generate 3 competing solutions + meta-judge
+                                     # picks the best. 15-20% cost savings through
+                                     # intelligent strategy selection (GCS pattern).
+    "what-if-oracle",                # Maps 6 scenario branches (best/likely/worst/
+                                     # wildcard/contrarian/second-order) before
+                                     # committing. Catches edge cases early.
+    "scientific-critical-thinking",  # Systematic bias detection, methodology
+                                     # critique, logical fallacy identification.
+                                     # Catches flawed reasoning before it ships.
+
+    # ── Reasoning chains (every decision should be traced) ───────────────────
+    "thought-based-reasoning",       # Chain-of-thought for every generation decision
+    "tree-of-thoughts",              # Systematic multi-branch exploration
     "cause-and-effect",              # Think through downstream consequences
     "why",                           # Ask why before doing — prevents wrong solutions
     "root-cause-tracing",            # Trace issues to root, not symptoms
     "propose-hypotheses",            # Generate alternatives before picking one
 
-    # ── Execution quality (every layer, every file) ───────────────────────────
+    # ── Planning (plan before every file, not just complex ones) ─────────────
+    "plan",                          # Multi-phase parallel analysis → architecture
+                                     # synthesis → decomposition → verification.
+                                     # Prevents rework by catching gaps upfront.
+    "plan-do-check-act",             # Iterative: Plan→Do→Check→Act cycle on every
+                                     # deliverable. Targets highest-impact improvements.
+
+    # ── Execution quality (generate → self-verify → improve) ─────────────────
     "verification-before-completion", # Never mark done without verifying
     "do-and-judge",                  # Generate then immediately self-verify
     "do-in-steps",                   # Break complex generation into clean steps
     "reflect",                       # Self-reflection on output before returning
-    "evaluation",                    # Evaluate own output against requirements
-    "do",                            # Orchestrate with verification checkpoints
 
-    # ── Intelligence & improvement ────────────────────────────────────────────
+    # ── Self-evaluation (every output judged before returning) ────────────────
+    "evaluation",                    # Evaluate own output against requirements
+    "advanced-evaluation",           # LLM-as-Judge with bias mitigation, rubric
+                                     # generation, pairwise comparison. 15-25%
+                                     # reliability improvement over basic evaluation.
+    "critique",                      # Multi-agent debate: 3 independent judges
+                                     # (Requirements/Architecture/Quality) reach
+                                     # consensus. Prevents single-perspective errors.
+    "judge",                         # Meta-judge generates tailored rubrics per
+                                     # artifact type — same framework evaluates
+                                     # DB schemas, APIs, configs, and docs equally.
+
+    # ── Execution orchestration ───────────────────────────────────────────────
+    "do",                            # Orchestrate with verification checkpoints
+    "systematic-debugging",          # Four-phase: root cause → hypothesis → test
+                                     # → fix. 95% first-time fix rate. Every layer
+                                     # can have bugs including deploy configs.
+
+    # ── Continuous improvement ────────────────────────────────────────────────
     "kaizen",                        # Every file should be the best version possible
     "using-superpowers",             # Meta-skill: use all available skills effectively
-    "smart-explore",                 # Explore all options before committing to one
 
-    # ── Output quality & cost efficiency ─────────────────────────────────────
+    # ── Context & cost efficiency (cheaper agents, smarter context) ──────────
+    "context-fundamentals",          # Informativity over exhaustiveness, position-
+                                     # aware placement, progressive disclosure.
+                                     # 4-8x token savings on file understanding.
+    "context-optimization",          # Optimise context usage — 20-30% API cost
+                                     # reduction on every agent's Claude calls.
+    "context-compression",           # Compress context intelligently — prevents
+                                     # quality collapse on large codebases.
+
+    # ── Output quality ────────────────────────────────────────────────────────
     "write-concisely",               # Clean, concise code — fewer tokens = lower cost
-    "context-optimization",          # Optimise context usage — reduces API spend 20-30%
-    "context-compression",           # Compress context intelligently — critical for cost
 
     # ── Security (universal — every layer can introduce vulnerabilities) ──────
-    "owasp-security",                # Security mindset in DB schemas, APIs, deploy, docs
+    "owasp-security",                # Security mindset in DB schemas, APIs, deploy,
+                                     # docs — not just API/middleware layers.
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
