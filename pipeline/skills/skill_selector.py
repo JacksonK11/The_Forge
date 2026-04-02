@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from pipeline.skills.skill_library import get_skill_excerpt
+from pipeline.skills.skill_library import get_skill_excerpt, get_skill
 
 # ── Layer → skill names ───────────────────────────────────────────────────────
 
@@ -105,6 +105,12 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
 # Max skills to inject per prompt (keeps token cost reasonable)
 MAX_SKILLS_PER_PROMPT = 3
 MAX_CHARS_PER_SKILL = 1500
+
+# Layer 4 (Worker/Agent logic) is where generated agents make their own Claude
+# API calls. We give these files the full skill content so The Forge can embed
+# it directly into the system prompts it writes — not just use it during generation.
+EMBED_SKILLS_LAYERS = {4}  # layers where skills should be embedded into generated code
+MAX_EMBED_CHARS = 3000  # more chars for embed mode — these go into the agent itself
 
 
 def select_skills(
@@ -186,15 +192,78 @@ def build_skills_section(
 ) -> str | None:
     """
     Build the skills injection block for a codegen prompt.
+
+    For Layer 4 (Worker/Agent logic) files: returns two sections:
+      1. SKILL GUIDANCE — how to structure the code
+      2. EMBED THESE SKILLS — full skill content to paste into the generated
+         agent's own Claude system prompts, so the running agent uses these
+         methodologies in its own AI calls, not just during generation.
+
+    For all other layers: returns SKILL GUIDANCE only.
     Returns None if no relevant skills found.
     """
     skills = select_skills(spec, layer, file_path)
     if not skills:
         return None
 
+    # Standard guidance section (used during generation)
     lines = ["SKILL GUIDANCE (apply these methodologies when generating this file):"]
     for name, content in skills:
         lines.append(f"\n--- {name.upper().replace('-', ' ')} ---")
         lines.append(content)
 
+    # For agent logic layers: also tell The Forge to embed skills into generated system prompts
+    if layer in EMBED_SKILLS_LAYERS:
+        # Get domain skills (non-layer skills) — these are what the agent itself needs
+        domain_skills = _select_domain_skills(spec)
+        if domain_skills:
+            lines.append(
+                "\n\nEMBED THESE SKILLS IN GENERATED SYSTEM PROMPTS:"
+            )
+            lines.append(
+                "The system prompt strings you write into this agent's Claude API calls "
+                "MUST include the following skill methodology content verbatim. "
+                "This is not optional — paste the relevant sections directly into the "
+                "system prompt constants/strings in the generated code so the running "
+                "agent applies expert methodology to every AI call it makes:"
+            )
+            for name, content in domain_skills:
+                lines.append(f"\n=== {name.upper().replace('-', ' ')} (embed in system prompt) ===")
+                lines.append(content)
+
     return "\n".join(lines)
+
+
+def _select_domain_skills(spec: dict) -> list[tuple[str, str]]:
+    """
+    Select domain-specific skills that should be embedded into the generated
+    agent's own Claude system prompts (not just used during code generation).
+    These are the skills that make the agent itself smarter — not The Forge.
+    """
+    search_text = " ".join([
+        spec.get("description", ""),
+        spec.get("service_type", ""),
+        spec.get("agent_name", ""),
+    ]).lower()
+
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def add(skill_name: str) -> None:
+        if skill_name not in seen:
+            seen.add(skill_name)
+            selected.append(skill_name)
+
+    for keyword, skills in KEYWORD_SKILLS.items():
+        if keyword in search_text:
+            for skill in skills[:2]:  # top 2 per keyword
+                add(skill)
+
+    # Cap at 2 embed skills — these go into generated code verbatim so keep tight
+    top = selected[:2]
+    result: list[tuple[str, str]] = []
+    for name in top:
+        content = get_skill_excerpt(name, max_chars=MAX_EMBED_CHARS)
+        if content:
+            result.append((name, content))
+    return result
