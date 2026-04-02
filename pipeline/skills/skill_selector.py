@@ -4,41 +4,46 @@ pipeline/skills/skill_selector.py
 Selects skills to inject into every codegen prompt. NO CAPS on skill count —
 every relevant skill is included. Token budget managed via chars-per-skill.
 
-THREE TIERS OF SKILL INJECTION:
+FOUR TIERS OF SKILL INJECTION:
 
   Tier 1 — FORGE UNIVERSAL (every layer, every agent, always):
-    Skills that make The Forge itself smarter. Prompt engineering, reasoning,
-    verification, conciseness, reflection. Always present.
+    23 skills that make every single generated file smarter — reasoning,
+    verification, security, context efficiency, evaluation, output quality.
+    These run on DB schemas, deploy configs, docs — everything.
 
   Tier 2 — LAYER SKILLS (specific to the layer being generated):
     Layer 1 (DB)        → debugging, root cause, TDD
-    Layer 2 (Infra)     → security, planning, project structure
-    Layer 3 (API)       → security, debugging, TDD, implementation patterns
-    Layer 4 (Worker)    → ALL context/memory skills + ALL agent architecture
-                          skills + evaluation + multi-agent orchestration
+    Layer 2 (Infra)     → security, planning, project structure, Fly.io, RQ
+    Layer 3 (API)       → security, debugging, TDD, webhooks, websockets
+    Layer 4 (Worker)    → ALL context/memory + orchestration + evaluation +
+                          async + realtime + vector + aggregation
     Layer 5 (Dashboard) → ALL UI/UX skills + design system + frontend patterns
-    Layer 6 (Deploy)    → security, verification
+    Layer 6 (Deploy)    → security, verification, Fly.io patterns
     Layer 7 (Docs)      → writing, documentation, markdown
 
   Tier 3 — DOMAIN SKILLS (matched from agent spec keywords):
     Stacked across all matching keywords. For DDD detailing agent Layer 4:
     marketing-psychology + copywriting + cold-email + customer-research +
     email-sequence + sales-enablement + social-content + referral-program
-    + every other keyword match.
+    + every other keyword match. No cap.
+
+  Tier 4 — SPEC AUTO-DISCOVERY (catches all 341 skills):
+    Scans the full spec text for exact skill name mentions. If a blueprint
+    says "use playwright" or "pgvector" or any installed skill name anywhere
+    in the spec, that skill is automatically loaded. This ensures every
+    installed skill is reachable without manual wiring.
 
 EMBED SECTION (Layer 4 only):
     Domain skills are also embedded into the generated agent's own Claude
     system prompts verbatim, so the running agent applies skill methodology
     to its own AI calls at runtime.
-
-For a DDD lead gen agent, Layer 4 gets 40-50+ skills working together.
 """
 
 from __future__ import annotations
 
 from loguru import logger
 
-from pipeline.skills.skill_library import get_skill_excerpt
+from pipeline.skills.skill_library import get_skill_excerpt, list_available_skills
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TIER 1: FORGE UNIVERSAL SKILLS
@@ -47,25 +52,40 @@ from pipeline.skills.skill_library import get_skill_excerpt
 # ─────────────────────────────────────────────────────────────────────────────
 
 FORGE_UNIVERSAL_SKILLS: list[str] = [
-    # Prompt & Claude intelligence
-    "prompt-engineering",            # The Forge writes system prompts — this is critical
+    # ── Prompt & Claude intelligence (every file calls Claude) ────────────────
+    "prompt-engineering",                    # Forge writes system prompts — critical
     "apply-anthropic-skill-best-practices",  # Best practices for Claude usage
-    "claude-api",                    # Claude API patterns and SDK usage
-    "test-prompt",                   # Test and validate prompts before using
-    # Reasoning & thinking
-    "thought-based-reasoning",       # Chain-of-thought for every generation decision
-    "tree-of-thoughts",              # Systematic exploration for complex files
-    # Execution quality
+    "claude-api",                            # Claude API patterns and SDK usage
+    "test-prompt",                           # Validate prompts before using
+
+    # ── Reasoning & thinking (every file benefits from deep reasoning) ────────
+    "thought-based-reasoning",       # Chain-of-thought for every decision
+    "tree-of-thoughts",              # Explore multiple approaches before committing
+    "cause-and-effect",              # Think through downstream consequences
+    "why",                           # Ask why before doing — prevents wrong solutions
+    "root-cause-tracing",            # Trace issues to root, not symptoms
+    "propose-hypotheses",            # Generate alternatives before picking one
+
+    # ── Execution quality (every layer, every file) ───────────────────────────
     "verification-before-completion", # Never mark done without verifying
     "do-and-judge",                  # Generate then immediately self-verify
+    "do-in-steps",                   # Break complex generation into clean steps
     "reflect",                       # Self-reflection on output before returning
-    # Continuous improvement
+    "evaluation",                    # Evaluate own output against requirements
+    "do",                            # Orchestrate with verification checkpoints
+
+    # ── Intelligence & improvement ────────────────────────────────────────────
     "kaizen",                        # Every file should be the best version possible
     "using-superpowers",             # Meta-skill: use all available skills effectively
-    # Output quality
-    "write-concisely",               # Clean, concise code and prompts
-    # Debugging (universal — every layer can have issues)
-    "systematic-debugging",          # Root cause before fixes, always
+    "smart-explore",                 # Explore all options before committing to one
+
+    # ── Output quality & cost efficiency ─────────────────────────────────────
+    "write-concisely",               # Clean, concise code — fewer tokens = lower cost
+    "context-optimization",          # Optimise context usage — reduces API spend 20-30%
+    "context-compression",           # Compress context intelligently — critical for cost
+
+    # ── Security (universal — every layer can introduce vulnerabilities) ──────
+    "owasp-security",                # Security mindset in DB schemas, APIs, deploy, docs
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -309,6 +329,7 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "seo-images",
         "seo-maps",
         "seo-programmatic",
+        "schema-markup",             # Structured data (JSON-LD) for rich results
     ],
     "research": [
         "deep-research",
@@ -381,6 +402,9 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "ftmo-prop-firm-rules",           # FTMO $100k account hard limits
         "forex-session-patterns",         # Session timing, killzones, spread awareness
         "websocket-realtime",             # Alpaca streaming, live data feed
+        "timesfm-forecasting",            # Zero-shot time-series price forecasting
+        "scikit-learn",                   # ML for pattern classification and regime detection
+        "statsmodels",                    # Time series decomposition, OLS, diagnostics
     ],
     "design": [
         "ui-ux-pro-max",
@@ -665,6 +689,79 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "cross-agent-aggregation",
         "async-python-advanced",
     ],
+
+    # ── Data visualisation & analysis ────────────────────────────────────────
+    "chart": [
+        "plotly",                        # Interactive charts, hover, zoom
+        "seaborn",                       # Statistical visualisation
+        "matplotlib",                    # Full custom static/animated charts
+    ],
+    "visuali": [
+        "plotly",
+        "seaborn",
+        "matplotlib",
+    ],
+    "dashboard chart": [
+        "plotly",
+        "seaborn",
+    ],
+    "forecast": [
+        "timesfm-forecasting",           # Zero-shot time-series forecasting
+        "statsmodels",                   # Regression, GLM, time series
+    ],
+    "prediction": [
+        "timesfm-forecasting",
+        "scikit-learn",                  # ML pipelines, classification, regression
+    ],
+    "machine learning": [
+        "scikit-learn",
+        "statsmodels",
+        "shap",                          # ML model explainability
+    ],
+    "document": [
+        "docx",                          # Word document creation/editing
+        "pdf",
+        "executive-briefing-style",
+    ],
+    "word": [
+        "docx",
+    ],
+    "perplexity": [
+        "perplexity-search",             # AI-powered web search with citations
+    ],
+    "geo": [
+        "geopandas",                     # Geospatial analysis, suburb coverage
+    ],
+    "suburb": [
+        "geopandas",
+        "google-places-api",
+    ],
+    "postcode": [
+        "geopandas",
+        "google-places-api",
+    ],
+    "ideas": [
+        "create-ideas",                  # 6 diverse idea variations per query
+        "brainstorm",
+        "marketing-ideas",
+    ],
+    "network": [
+        "networkx",                      # Graph analysis for relationship mapping
+    ],
+    "schema": [
+        "schema-markup",                 # Structured data markup for SEO
+        "seo-schema",
+    ],
+    "dataframe": [
+        "polars",                        # Fast in-memory data processing
+    ],
+    "csv": [
+        "polars",
+        "xlsx",
+    ],
+    "internal": [
+        "internal-comms",               # Status reports, 3P updates, team updates
+    ],
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -801,6 +898,20 @@ def select_skills(
     # Path-level hints
     for skill in _path_skills(file_path):
         add(skill)
+
+    # Tier 4: Auto-discovery — scan spec text for exact installed skill names.
+    # This ensures ALL 341 installed skills are reachable. If a blueprint spec
+    # mentions "playwright", "pgvector", "timesfm", "scikit-learn" etc. anywhere
+    # in its text, that skill is automatically loaded without manual wiring.
+    all_installed = set(list_available_skills())
+    spec_words = set(search_text.replace("_", "-").split())
+    # Also check full spec values for multi-word skill names
+    full_spec_text = " ".join(str(v) for v in spec.values() if v).lower().replace("_", "-")
+    for skill_name in all_installed:
+        if skill_name not in seen:
+            if skill_name in spec_words or f" {skill_name} " in full_spec_text:
+                add(skill_name)
+                logger.debug(f"Auto-discovered skill from spec text: {skill_name}")
 
     # Load content — skip any not installed
     result: list[tuple[str, str]] = []
