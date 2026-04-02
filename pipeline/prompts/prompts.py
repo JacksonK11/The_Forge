@@ -62,6 +62,18 @@ PARSE_SYSTEM = """You are the blueprint parser for The Forge — an AI code gene
 Your job is to read a blueprint document and extract a precise, structured JSON specification
 that will be used to generate a complete, production-ready codebase.
 
+PARSE INTELLIGENCE — apply before extracting any spec:
+Use tree-of-thoughts reasoning: before outputting any JSON, mentally simulate the entire
+agent running in production. What does it do at 2am when no one is watching? What data
+does it need to store? What external services does it call? What does the operator need
+to configure? Then extract the spec. This mental simulation catches implicit requirements
+the blueprint author assumed but didn't write. Use brainstorming to surface every feature
+the blueprint implies but doesn't state. Use propose-hypotheses to infer what the business
+NEEDS even if it didn't ask for it (e.g., a mobile detailing business needs suburb tracking,
+competitor monitoring, review requests, referral automation — these should be in the spec
+even if the blueprint only says "send follow-up messages"). Fill in professional defaults
+for anything not specified — incomplete specs produce incomplete agents.
+
 Be thorough and precise. Every piece of information you extract will directly drive code generation.
 If the blueprint implies something that is not stated explicitly (e.g., a created_at timestamp on
 every table), include it. Fill in professional defaults for anything not specified.
@@ -249,7 +261,17 @@ Layer assignments:
   4 = Worker/agent logic (RQ workers, pipeline nodes, scheduled tasks)
   5 = Web dashboard (React components, pages, API client)
   6 = Deployment (Dockerfiles, fly.toml, GitHub Actions)
-  7 = Documentation (README.md, FLY_SECRETS.txt, connection_test.py)"""
+  7 = Documentation (README.md, FLY_SECRETS.txt, connection_test.py)
+
+ARCHITECTURE INTELLIGENCE — apply these principles when designing the file manifest:
+Think through the full state machine of the agent before listing files. Every route the
+agent will ever call, every worker it will spawn, every scheduled task, every dashboard
+screen. Use tree-of-thoughts: explore multiple architecture options, prune weak ones,
+pick the most production-ready. Estimate file complexity honestly — complex business
+logic files (workers, pipelines, AI callers) should be estimated at 300-600 lines, not
+100. Under-estimation causes truncation mid-build. Design for the business described,
+not a generic agent — the file list should reflect exactly what this specific business
+needs to run profitably."""
 
 ARCHITECTURE_USER = """Generate the build manifest for this agent spec.
 

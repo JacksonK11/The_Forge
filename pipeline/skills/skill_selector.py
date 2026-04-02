@@ -51,6 +51,7 @@ FORGE_UNIVERSAL_SKILLS: list[str] = [
     "prompt-engineering",            # The Forge writes system prompts — this is critical
     "apply-anthropic-skill-best-practices",  # Best practices for Claude usage
     "claude-api",                    # Claude API patterns and SDK usage
+    "test-prompt",                   # Test and validate prompts before using
     # Reasoning & thinking
     "thought-based-reasoning",       # Chain-of-thought for every generation decision
     "tree-of-thoughts",              # Systematic exploration for complex files
@@ -58,6 +59,9 @@ FORGE_UNIVERSAL_SKILLS: list[str] = [
     "verification-before-completion", # Never mark done without verifying
     "do-and-judge",                  # Generate then immediately self-verify
     "reflect",                       # Self-reflection on output before returning
+    # Continuous improvement
+    "kaizen",                        # Every file should be the best version possible
+    "using-superpowers",             # Meta-skill: use all available skills effectively
     # Output quality
     "write-concisely",               # Clean, concise code and prompts
     # Debugging (universal — every layer can have issues)
@@ -108,6 +112,11 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "why",
         "analyze-issue",
         "add-typescript-best-practices",
+        "query",                     # DB query patterns
+        "database-lookup",           # Database lookup best practices
+        "status",                    # Status endpoint patterns
+        "requesting-code-review",    # Review before considering complete
+        "review-local-changes",      # Review changes thoroughly
     ],
 
     # ── Layer 4: Worker / Agent Logic ─────────────────────────────────────────
@@ -158,6 +167,21 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "what-if-oracle",
         "propose-hypotheses",
         "brainstorm",
+        "brainstorming",
+        "analyse",
+        "plan-do-check-act",         # Iterative improvement loop
+        "mem-search",                # Search memory for relevant patterns
+        "memorize",                  # Curate insights into persistent memory
+        "create-rule",               # Generate meta-rules from outcomes
+        "review-pr",                 # Review generated code before committing
+        "review-local-changes",      # Review all changes thoroughly
+        "receiving-code-review",     # Apply review feedback correctly
+        "requesting-code-review",    # Request review before completing
+        "parallel-web",              # Parallel web search patterns
+        "get-available-resources",   # Discover available tools/resources
+        "writing-plans",             # Write comprehensive implementation plans
+        "add-task",                  # Task management in agent workflows
+        "load-issues",               # Load and process issue queues
     ],
 
     # ── Layer 5: Web Dashboard ────────────────────────────────────────────────
@@ -191,6 +215,11 @@ LAYER_SKILLS: dict[int, list[str]] = {
         "systematic-debugging",
         "verification-before-completion",
         "cause-and-effect",
+        "commit",                    # Proper git commit conventions
+        "create-pr",                 # PR creation patterns
+        "finishing-a-development-branch",  # Branch completion checklist
+        "using-git-worktrees",       # Worktree management
+        "attach-review-to-pr",       # Attach reviews to PRs
     ],
 
     # ── Layer 7: Documentation ────────────────────────────────────────────────
@@ -256,6 +285,14 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "seo-sitemap",
         "seo-backlinks",
         "ai-seo",
+        "seo-plan",
+        "seo-competitor-pages",
+        "seo-geo",
+        "seo-hreflang",
+        "seo-image-gen",
+        "seo-images",
+        "seo-maps",
+        "seo-programmatic",
     ],
     "research": [
         "deep-research",
@@ -403,6 +440,47 @@ KEYWORD_SKILLS: dict[str, list[str]] = {
         "copywriting",
         "marketing-psychology",
         "content-strategy",
+    ],
+    "revenue": [
+        "revops",
+        "pricing-strategy",
+        "churn-prevention",
+        "sales-enablement",
+        "marketing-psychology",
+    ],
+    "report": [
+        "pptx",
+        "slides",
+        "pdf",
+        "xlsx",
+        "markdown-mermaid-writing",
+        "timeline-report",
+        "write-concisely",
+    ],
+    "presentation": [
+        "pptx",
+        "slides",
+        "design-system",
+        "write-concisely",
+    ],
+    "data": [
+        "xlsx",
+        "pdf",
+        "database-lookup",
+        "query",
+        "markdown-mermaid-writing",
+    ],
+    "free tool": [
+        "free-tool-strategy",
+        "marketing-psychology",
+        "lead-magnets",
+    ],
+    "property management": [
+        "cold-email",
+        "customer-research",
+        "marketing-psychology",
+        "sales-enablement",
+        "revops",
     ],
 }
 
